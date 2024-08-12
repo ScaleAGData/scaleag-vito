@@ -3,11 +3,11 @@ from setuptools import find_packages, setup
 from src.scaleagdata._version import __version__
 
 setup(
-    name="scaleagdata_vito",
+    name="scaleagdata",
     version=f"{__version__}",
     include_package_data=True,
-    package_dir={"": "src/scaleagdata"},
-    packages=find_packages("src/scaleagdata"),
+    package_dir={"": "src"},
+    packages=find_packages("src"),
     install_requires=[
         "scikit-learn",
         "scikit-image",
