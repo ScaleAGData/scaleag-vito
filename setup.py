@@ -1,9 +1,9 @@
 from setuptools import find_packages, setup
 
-from src.scaleagdata._version import __version__
+from src.scaleagdata_vito._version import __version__
 
 setup(
-    name="scaleagdata",
+    name="scaleagdata_vito",
     version=f"{__version__}",
     include_package_data=True,
     package_dir={"": "src"},
