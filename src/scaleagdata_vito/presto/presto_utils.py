@@ -83,7 +83,7 @@ def reinitialize_pos_embedding(
     return model
 
 
-def load_pretrained_model(model_url, finetuned=False, ss_dekadal=False):
+def load_pretrained_model_from_url(model_url, finetuned=False, ss_dekadal=False):
     model_kwargs = json.load(Path(config_dir / "default.json").open("r"))
     response = requests.get(model_url)
     model_path = torch.load(io.BytesIO(response.content), map_location=device)
