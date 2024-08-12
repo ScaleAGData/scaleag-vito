@@ -1,6 +1,6 @@
 from setuptools import find_packages, setup
 
-from src.scaleagdata.presto import __version__
+from src.scaleagdata import __version__
 
 setup(
     name="scaleagdata_vito",
