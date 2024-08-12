@@ -1,6 +1,9 @@
 from setuptools import find_packages, setup
 
-from src.scaleagdata import __version__
+__version__ = None
+
+with open("src/scaleagdata/_version.py") as fp:
+    exec(fp.read())
 
 setup(
     name="scaleagdata_vito",
