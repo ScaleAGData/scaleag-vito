@@ -11,7 +11,7 @@ setup(
     include_package_data=True,
     package_dir={"": "src"},
     packages=find_packages("src"),
-    package_data={"": ["presto/*"]},
+    package_data={"": ["scaleagdata/*", "scaleagdata/*/*"]},
     install_requires=[
         "scikit-learn",
         "scikit-image",
