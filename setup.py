@@ -12,6 +12,9 @@ setup(
         "scikit-learn",
         "scikit-image",
         "matplotlib",
+        "loguru",
+        "rioxarray",
+        "rasterio",
     ],
     dependency_links=[
         "git+https://github.com/WorldCereal/presto-worldcereal.git#egg=presto_worldcereal"
