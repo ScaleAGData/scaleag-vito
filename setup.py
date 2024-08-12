@@ -7,10 +7,12 @@ setup(
     version=f"{__version__}",
     packages=find_packages(),
     install_requires=[
-        "git+https://github.com/WorldCereal/presto-worldcereal.git",
         "scikit-learn",
         "scikit-image",
         "matplotlib",
+    ],
+    dependency_links=[
+        "git+https://github.com/WorldCereal/presto-worldcereal.git#egg=presto_worldcereal"
     ],
     zip_safe=True,
     author="Giorgia Milli",
