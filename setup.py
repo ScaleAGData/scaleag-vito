@@ -5,7 +5,10 @@ from src.scaleagdata.presto import __version__
 setup(
     name="scaleagdata_vito",
     version=f"{__version__}",
-    packages=find_packages(),
+    include_package_data=True,
+    package_dir={"": "src"},
+    packages=find_packages("src"),
+    package_data={"": ["presto/*"]},
     install_requires=[
         "scikit-learn",
         "scikit-image",
