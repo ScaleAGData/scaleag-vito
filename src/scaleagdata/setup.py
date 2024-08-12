@@ -3,7 +3,8 @@ from setuptools import find_packages, setup
 setup(
     name="scaleagdata_vito",
     version="0.1",
-    packages=find_packages(),
+    packages=find_packages(where="."),
+    package_dir={"": "."},
     install_requires=[
         "git+https://github.com/WorldCereal/presto-worldcereal.git",
     ],
