@@ -1,16 +1,13 @@
 from setuptools import find_packages, setup
 
-__version__ = None
-
-with open("src/scaleagdata/_version.py") as fp:
-    exec(fp.read())
+from src.scaleagdata._version import __version__
 
 setup(
     name="scaleagdata_vito",
     version=f"{__version__}",
     include_package_data=True,
-    package_dir={"": "src"},
-    packages=find_packages("src"),
+    package_dir={"": "src/scaleagdata"},
+    packages=find_packages("src/scaleagdata"),
     install_requires=[
         "scikit-learn",
         "scikit-image",
