@@ -12,6 +12,7 @@ setup(
         "scikit-learn",
         "scikit-image",
         "matplotlib",
+        "wandb",
     ],
     dependency_links=[
         "git+https://github.com/WorldCereal/presto-worldcereal.git#egg=presto_worldcereal"

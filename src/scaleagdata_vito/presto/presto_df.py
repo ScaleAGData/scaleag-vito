@@ -1,14 +1,15 @@
-import xarray as xr
-from pathlib import Path
-import pandas as pd 
-import numpy as np
-import geopandas as gpd
-from shapely.geometry import Point
 from datetime import datetime, timedelta
+
+import geopandas as gpd
+import numpy as np
+import pandas as pd
+import tqdm
+import xarray as xr
+from shapely.geometry import Point
 
 
 def to_float32(df):
-    return df.astype({c: np.float32 for c in df.columns if df[c].dtype==np.float64})
+    return df.astype({c: np.float32 for c in df.columns if df[c].dtype == np.float64})
 
 
 def rename_cols(df, i):
@@ -26,7 +27,7 @@ def rename_cols(df, i):
         "VH": f"SAR-VH-ts{i}-20m",
         "VV": f"SAR-VV-ts{i}-20m",
         "precipitation-flux": f"METEO-precipitation_flux-ts{i}-100m",
-        "temperature-mean": f"METEO-temperature_mean-ts{i}-100m",     
+        "temperature-mean": f"METEO-temperature_mean-ts{i}-100m",
     }
     return df.rename(columns=BAND_MAPPING)
 
@@ -46,16 +47,20 @@ def xr_to_df(netcdf_file):
     df = pd.DataFrame()
     tps = list(netcdf["t"])
     for i in range(len(tps)):
-        tp = netcdf.sel(t=tps[i]).to_dataframe().drop(columns=["DEM", "feature_names", "t", "lat", "lon"])
+        tp = (
+            netcdf.sel(t=tps[i])
+            .to_dataframe()
+            .drop(columns=["DEM", "feature_names", "t", "lat", "lon"])
+        )
         tp = rename_cols(tp, i)
         df = pd.concat([df, tp], axis=1)
 
     # add static columns
-    df["start_date"] = np.datetime_as_string(tps[0].data, unit="D") 
+    df["start_date"] = np.datetime_as_string(tps[0].data, unit="D")
     df["end_date"] = np.datetime_as_string(tps[-1].data, unit="D")
     df["lat"] = netcdf["lat"].data
     df["lon"] = netcdf["lon"].data
-    df["DEM-alt-20m"] = netcdf.sel(t=tps[0])['DEM'].data
+    df["DEM-alt-20m"] = netcdf.sel(t=tps[0])["DEM"].data
     df["DEM-slo-20m"] = 0
     return df
 
@@ -66,17 +71,17 @@ def add_labels(df, labels_file):
 
     Parameters:
     - df (pandas.DataFrame): The DataFrame to add labels to.
-    - gdf_labels (geopandas.GeoDataFrame): The GeoDataFrame containing the labels. this dataframe 
-    was used to collect datapoints from OpenEO so it contains the geometries which will be intersected with the 
-    df to add the labels. 
+    - gdf_labels (geopandas.GeoDataFrame): The GeoDataFrame containing the labels. this dataframe
+    was used to collect datapoints from OpenEO so it contains the geometries which will be intersected with the
+    df to add the labels.
 
     Returns:
     - pandas.DataFrame: The DataFrame with labels added.
 
     """
     label_gdf = gpd.read_file(labels_file)
-    df['geometry'] = [Point(r.lon, r.lat) for r in df.itertuples()]
-    gdf = gpd.GeoDataFrame(df, geometry='geometry', crs="EPSG:4326")
+    df["geometry"] = [Point(r.lon, r.lat) for r in df.itertuples()]
+    gdf = gpd.GeoDataFrame(df, geometry="geometry", crs="EPSG:4326")
     df_labeled = gpd.sjoin(gdf, label_gdf, how="left", op="within")
     df_labeled = df_labeled.drop(columns=["geometry", "index_right"])
     df_labeled = df_labeled.drop_duplicates()
@@ -97,18 +102,35 @@ def filter_ts(df_to_filter, window_of_interest, no_data_value=65535, num_ts=36):
     Returns:
         pandas.DataFrame: The filtered DataFrame with the specified time series data replaced by the no_data_value.
     """
-    if len(df_to_filter['start_date'].unique()) == len(df_to_filter['end_date'].unique()):
+    if len(df_to_filter["start_date"].unique()) == len(
+        df_to_filter["end_date"].unique()
+    ):
         ref_row = df_to_filter.iloc[0]
         months = get_month_array(num_ts, ref_row)
-        ts_to_filter = [t for t in range(12) if t not in np.arange( window_of_interest[0] - 1,  window_of_interest[1])]
-        ts_cols = [ts for ts in df_to_filter.columns for t in ts_to_filter if f"-ts{t}-" in ts]
+        ts_to_filter = [
+            t
+            for t in range(12)
+            if t not in np.arange(window_of_interest[0] - 1, window_of_interest[1])
+        ]
+        ts_cols = [
+            ts for ts in df_to_filter.columns for t in ts_to_filter if f"-ts{t}-" in ts
+        ]
         df_to_filter.loc[:, ts_cols] = np.float32(no_data_value)
-    else:  
+    else:
         for i, row in tqdm.tqdm(df_to_filter.iterrows()):
             row = df_to_filter.iloc[i]
             months = get_month_array(num_ts, row)
-            ts_to_filter = [t for t in range(12) if t not in np.arange( window_of_interest[0] - 1,  window_of_interest[1])]
-            ts_cols = [ts for ts in df_to_filter.columns for t in ts_to_filter if f"-ts{t}-" in ts]
+            ts_to_filter = [
+                t
+                for t in range(12)
+                if t not in np.arange(window_of_interest[0] - 1, window_of_interest[1])
+            ]
+            ts_cols = [
+                ts
+                for ts in df_to_filter.columns
+                for t in ts_to_filter
+                if f"-ts{t}-" in ts
+            ]
             df_to_filter.loc[i, ts_cols] = np.float32(no_data_value)
     return df_to_filter
 
@@ -120,9 +142,7 @@ def get_month_array(num_timesteps: int, row: pd.Series) -> np.ndarray:
 
     # Calculate the step size for 10-day intervals and create a list of dates
     step = int((end_date - start_date).days / (num_timesteps - 1))
-    date_vector = [
-        start_date + timedelta(days=i * step) for i in range(num_timesteps)
-    ]
+    date_vector = [start_date + timedelta(days=i * step) for i in range(num_timesteps)]
 
     # Ensure last date is not beyond the end date
     if date_vector[-1] > end_date:
