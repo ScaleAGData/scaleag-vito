@@ -3,16 +3,10 @@ import argparse
 import json
 import logging
 from pathlib import Path
-from typing import Tuple, cast
+from typing import cast
 
-import matplotlib.pyplot as plt
 import pandas as pd
 import torch
-import torch.nn as nn
-import xarray as xr
-from presto.dataops import BANDS_GROUPS_IDX
-from presto.dataset import WorldCerealMaskedDataset as WorldCerealDataset
-from presto.masking import MASK_STRATEGIES, MaskParamsNoDw
 from presto.presto import Presto
 from presto.utils import (
     DEFAULT_SEED,
@@ -20,14 +14,10 @@ from presto.utils import (
     device,
     initialize_logging,
     seed_everything,
-    timestamp_dirname,
 )
-from torch import optim
-from torch.utils.data import DataLoader
-from tqdm import tqdm
 
-from scaleagdata.presto_eval import ScaleAGYieldEval
-from scaleagdata.presto_utils import reinitialize_pos_embedding
+from scaleagdata.presto.presto_eval import ScaleAGYieldEval
+from scaleagdata.presto.presto_utils import reinitialize_pos_embedding
 
 logger = logging.getLogger("__main__")
 
@@ -62,7 +52,11 @@ argparser.add_argument(
 argparser.add_argument("--dekadal", type=bool, default=False)
 argparser.add_argument("--finetuned", type=bool, default=False)
 argparser.add_argument("--data_dir", type=str, default="")
-argparser.add_argument("--model_path", type=str, default="/home/vito/millig/gio/models/presto_ss/monthly/output/2024_05_14_18_07_41_787101_szn0tnsi/models/28.pt") # WC ss 30d Presto
+argparser.add_argument(
+    "--model_path",
+    type=str,
+    default="/home/vito/millig/gio/models/presto_ss/monthly/output/2024_05_14_18_07_41_787101_szn0tnsi/models/28.pt",
+)  # WC ss 30d Presto
 argparser.add_argument("--target_name", type=str, default="median_yield")
 argparser.add_argument("--task", type=str, default="regression")
 argparser.add_argument("--num_outputs", type=int, default=1)
@@ -106,7 +100,7 @@ if wandb_enabled:
     )
     run_id = cast(wandb.sdk.wandb_run.Run, run).id
 
-model_logging_dir = output_parent_dir / model_name #timestamp_dirname(run_id)
+model_logging_dir = output_parent_dir / model_name  # timestamp_dirname(run_id)
 model_logging_dir.mkdir(exist_ok=True, parents=True)
 initialize_logging(model_logging_dir)
 logger.info("Using output dir: %s" % model_logging_dir)
@@ -143,8 +137,8 @@ elif dekadal:
     model = Presto.construct(**model_kwargs)
     # extend model architecture to dekadal
     model = reinitialize_pos_embedding(model, max_sequence_length=72)
-    
-    # load presto ss trained for decadal 
+
+    # load presto ss trained for decadal
     best_model = torch.load(model_path, map_location=device)
     model.load_state_dict(best_model)
 else:
@@ -166,10 +160,7 @@ if not task == "regression":
         "CatBoostClassifier",
     ]
 else:
-    model_modes = [
-        "Random Forest Regressor",
-        "Linear Regression", 
-        "CatBoostRegressor"]
+    model_modes = ["Random Forest Regressor", "Linear Regression", "CatBoostRegressor"]
 
 logger.info(f"Fine Tuning Presto on {task} task")
 full_eval = ScaleAGYieldEval(
