@@ -1,17 +1,19 @@
+import io
 import json
 from pathlib import Path
 from typing import Literal, cast
 
 import numpy as np
+import requests
 import torch
-from torch import nn
 from loguru import logger
 from presto.presto import Presto, get_sinusoid_encoding_table
 from presto.utils import config_dir, device
 from sklearn.metrics import explained_variance_score, mean_squared_error, r2_score
+from torch import nn
 
 
-def load_pretrained_model(model_name, model_path="", finetuned=False, ss_dekadal=False):
+def load_pretrained_model(model_path="", finetuned=False, ss_dekadal=False):
     model_kwargs = json.load(Path(config_dir / "default.json").open("r"))
     if finetuned:
         # initialize architecture without loading pretrained model
@@ -31,17 +33,17 @@ def load_pretrained_model(model_name, model_path="", finetuned=False, ss_dekadal
         if model_path != "":
             if ss_dekadal:
                 logger.info(
-            f" Initialize Presto dekadal architecture with 10d ss trained WorldCereal Presto weights..."
-        )
-                # if model was self-supervised trained as decadal, first reinitialize positional  
-                # embeddings then load weights 
+                    f" Initialize Presto dekadal architecture with 10d ss trained WorldCereal Presto weights..."
+                )
+                # if model was self-supervised trained as decadal, first reinitialize positional
+                # embeddings then load weights
                 model = reinitialize_pos_embedding(model, max_sequence_length=72)
                 best_model = torch.load(model_path, map_location=device)
                 model.load_state_dict(best_model)
             else:
                 logger.info(
-            f" Initialize Presto dekadal architecture with 30d ss trained WorldCereal Presto weights..."
-        )
+                    f" Initialize Presto dekadal architecture with 30d ss trained WorldCereal Presto weights..."
+                )
                 # if the model was self-supervised trained as monthly, first load weights then
                 # reinitialize positional embeddings
                 best_model = torch.load(model_path, map_location=device)
@@ -49,14 +51,16 @@ def load_pretrained_model(model_name, model_path="", finetuned=False, ss_dekadal
                 model = reinitialize_pos_embedding(model, max_sequence_length=72)
         else:
             logger.info(
-            f" Initialize Presto dekadal architecture with pretrained Presto weights..."
-        )
+                f" Initialize Presto dekadal architecture with pretrained Presto weights..."
+            )
             model = reinitialize_pos_embedding(model, max_sequence_length=72)
     model.to(device)
-    return model 
+    return model
 
 
-def reinitialize_pos_embedding(model, max_sequence_length: int):  # PrestoFineTuningModel
+def reinitialize_pos_embedding(
+    model, max_sequence_length: int
+):  # PrestoFineTuningModel
     # reinitialize encoder pos embed to stretch max length of time series
     model.encoder.pos_embed = nn.Parameter(
         torch.zeros(1, max_sequence_length, model.encoder.pos_embed.shape[-1]),
@@ -66,8 +70,8 @@ def reinitialize_pos_embedding(model, max_sequence_length: int):  # PrestoFineTu
         model.encoder.pos_embed.shape[1], model.encoder.pos_embed.shape[-1]
     )
     model.encoder.pos_embed.data.copy_(pos_embed)
-    
-     # reinitialize decoder pos embed to stretch max length of time series
+
+    # reinitialize decoder pos embed to stretch max length of time series
     model.decoder.pos_embed = nn.Parameter(
         torch.zeros(1, max_sequence_length, model.decoder.pos_embed.shape[-1]),
         requires_grad=False,
@@ -77,8 +81,55 @@ def reinitialize_pos_embedding(model, max_sequence_length: int):  # PrestoFineTu
     )
     model.decoder.pos_embed.data.copy_(pos_embed)
     return model
-    
-    
+
+
+def load_pretrained_model(model_url, finetuned=False, ss_dekadal=False):
+    model_kwargs = json.load(Path(config_dir / "default.json").open("r"))
+    response = requests.get(model_url)
+    model_path = torch.load(io.BytesIO(response.content), map_location=device)
+    if finetuned:
+        # initialize architecture without loading pretrained model
+        model = Presto.construct(**model_kwargs)
+        # extend model architecture to dekadal
+        model = reinitialize_pos_embedding(model, max_sequence_length=72)
+        # if we try to load a PrestoFT model, the architecture will be encoder + head
+        # so we run the command to construct the same FT model architecture to be able
+        # to correctly load weights
+        model = model.construct_finetuning_model(num_outputs=1)
+        logger.info(f" Initialize Presto dekadal architecture with dekadal PrestoFT...")
+        best_model = torch.load(model_path, map_location=device)
+        model.load_state_dict(best_model)
+    else:
+        # load pretrained default Presto
+        model = Presto.load_pretrained()
+        if model_path != "":
+            if ss_dekadal:
+                logger.info(
+                    f" Initialize Presto dekadal architecture with 10d ss trained WorldCereal Presto weights..."
+                )
+                # if model was self-supervised trained as decadal, first reinitialize positional
+                # embeddings then load weights
+                model = reinitialize_pos_embedding(model, max_sequence_length=72)
+                best_model = torch.load(model_path, map_location=device)
+                model.load_state_dict(best_model)
+            else:
+                logger.info(
+                    f" Initialize Presto dekadal architecture with 30d ss trained WorldCereal Presto weights..."
+                )
+                # if the model was self-supervised trained as monthly, first load weights then
+                # reinitialize positional embeddings
+                best_model = torch.load(model_path, map_location=device)
+                model.load_state_dict(best_model)
+                model = reinitialize_pos_embedding(model, max_sequence_length=72)
+        else:
+            logger.info(
+                f" Initialize Presto dekadal architecture with pretrained Presto weights..."
+            )
+            model = reinitialize_pos_embedding(model, max_sequence_length=72)
+    model.to(device)
+    return model
+
+
 def get_encodings(dl, pretrained_presto):
     pretrained_presto.eval()
     batch_encodings, batch_targets = [], []
@@ -108,6 +159,7 @@ def get_encodings(dl, pretrained_presto):
         batch_targets = batch_targets.ravel()
     return batch_encodings, batch_targets
 
+
 def predict_with_head(dl, finetuned_model):
     test_preds, targets = [], []
     for x, y, dw, latlons, month, variable_mask in dl:
@@ -117,19 +169,24 @@ def predict_with_head(dl, finetuned_model):
         ]
         finetuned_model.eval()
         with torch.no_grad():
-            preds = finetuned_model(
-                x_f,
-                dynamic_world=dw_f.long(),
-                mask=variable_mask_f,
-                latlons=latlons_f,
-                month=month_f,
-            ).squeeze(dim=1).cpu().numpy()
+            preds = (
+                finetuned_model(
+                    x_f,
+                    dynamic_world=dw_f.long(),
+                    mask=variable_mask_f,
+                    latlons=latlons_f,
+                    month=month_f,
+                )
+                .squeeze(dim=1)
+                .cpu()
+                .numpy()
+            )
             test_preds.append(preds)
     test_preds_np = np.concatenate(test_preds)
     target_np = np.concatenate(targets)
     return test_preds_np, target_np
 
-    
+
 def revert_to_original_units(y_norm, upper_bound, lower_bound):
     return y_norm * (upper_bound - lower_bound) + lower_bound
 
