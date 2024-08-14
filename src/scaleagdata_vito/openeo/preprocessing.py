@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import List, Optional
 
+import geopandas as gpd
 from openeo import UDF, Connection, DataCube
 from openeo_gfmap import (
     Backend,
@@ -296,10 +297,10 @@ def precomposited_datacube_METEO(
 def scaleag_preprocessed_inputs_gfmap(
     connection: Connection,
     backend_context: BackendContext,
-    spatial_extent: BoundingBoxExtent,
+    spatial_extent: SpatialContext,
     temporal_extent: TemporalContext,
     period: str = "dekad",
-    fetch_type: Optional[FetchType] = FetchType.TILE,
+    fetch_type: Optional[FetchType] = FetchType.POINT,
     disable_meteo: bool = False,
     tile_size: Optional[int] = None,
 ) -> DataCube:
@@ -371,20 +372,21 @@ def scaleag_preprocessed_inputs_gfmap(
             connection=connection,
             backend_context=backend_context,
             spatial_extent=spatial_extent,
+            temporal_extent=temporal_extent,
             fetch_type=fetch_type,
         )
-        
-        meteo_temp = meteo.filter_bands(bands=['AGERA5-TMEAN']) 
-        meteo_temp = meteo_temp.aggregate_temporal_period(period=period,
-                                                        reducer="mean")
-        meteo_temp = meteo_temp.apply_dimension(dimension="t",
-                                                process="array_interpolate_linear")
 
-        meteo_prec = meteo.filter_bands(bands=['AGERA5-PRECIP'])
-        meteo_prec = meteo_prec.aggregate_temporal_period(period=period,
-                                                        reducer="sum")
-        meteo_prec = meteo_prec.apply_dimension(dimension="t",
-                                                process="array_interpolate_linear")
+        meteo_temp = meteo.filter_bands(bands=["AGERA5-TMEAN"])
+        meteo_temp = meteo_temp.aggregate_temporal_period(period=period, reducer="mean")
+        meteo_temp = meteo_temp.apply_dimension(
+            dimension="t", process="array_interpolate_linear"
+        )
+
+        meteo_prec = meteo.filter_bands(bands=["AGERA5-PRECIP"])
+        meteo_prec = meteo_prec.aggregate_temporal_period(period=period, reducer="sum")
+        meteo_prec = meteo_prec.apply_dimension(
+            dimension="t", process="array_interpolate_linear"
+        )
         meteo_data = meteo_temp.merge_cubes(meteo_prec)
         data = data.merge_cubes(meteo_data)
 
