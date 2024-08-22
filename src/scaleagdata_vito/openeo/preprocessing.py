@@ -68,6 +68,7 @@ def scaleag_preprocessed_inputs_gfmap(
             "S2-L2A-B06",
             "S2-L2A-B07",
             "S2-L2A-B08",
+            "S2-L2A-B8A",
             "S2-L2A-B11",
             "S2-L2A-B12",
         ],
