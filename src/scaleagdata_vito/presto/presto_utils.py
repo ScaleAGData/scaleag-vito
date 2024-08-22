@@ -26,7 +26,7 @@ default_model_kwargs = {
 
 
 def load_pretrained_model_from_url(
-    model_url, finetuned=False, ss_dekadal=False, strict=False
+    model_url, finetuned=False, ss_dekadal=False, strict=False, device="cpu"
 ):
     if finetuned:
         # initialize architecture without loading pretrained model
@@ -108,7 +108,7 @@ def get_encodings(dl, pretrained_presto):
     for x, y, dw, latlons, month, variable_mask in dl:
         batch_targets.append(y)
         x_f, dw_f, latlons_f, month_f, variable_mask_f = [
-            t.to(device) for t in (x, dw, latlons, month, variable_mask)
+            t.to("cpu") for t in (x, dw, latlons, month, variable_mask)
         ]
         with torch.no_grad():
             cast(Presto, pretrained_presto).eval()
