@@ -1,13 +1,15 @@
 import io
 import json
 from pathlib import Path
-from typing import Literal, cast
+from typing import Literal, Optional, Union, cast
 
 import numpy as np
 import requests
 import torch
 from loguru import logger
-from presto.presto import Presto, get_sinusoid_encoding_table
+from presto.presto import Presto, PrestoFineTuningModel, get_sinusoid_encoding_table
+from torch.utils.data import DataLoader
+from catboost import CatBoostRegressor, CatBoostClassifier
 from presto.utils import device
 from sklearn.metrics import explained_variance_score, mean_squared_error, r2_score
 from torch import nn
@@ -78,7 +80,8 @@ def load_pretrained_model_from_url(
 
 
 def reinitialize_pos_embedding(
-    model, max_sequence_length: int
+    model: Union[Presto, PrestoFineTuningModel],
+    max_sequence_length: int
 ):  # PrestoFineTuningModel
     # reinitialize encoder pos embed to stretch max length of time series
     model.encoder.pos_embed = nn.Parameter(
@@ -102,13 +105,15 @@ def reinitialize_pos_embedding(
     return model
 
 
-def get_encodings(dl, pretrained_presto):
+def get_encodings(dl: DataLoader,
+                  pretrained_presto: PrestoFineTuningModel, 
+                  device: Literal["cpu", "cuda"] = "cpu"):
     pretrained_presto.eval()
     batch_encodings, batch_targets = [], []
     for x, y, dw, latlons, month, variable_mask in dl:
         batch_targets.append(y)
         x_f, dw_f, latlons_f, month_f, variable_mask_f = [
-            t.to("cpu") for t in (x, dw, latlons, month, variable_mask)
+            t.to(device) for t in (x, dw, latlons, month, variable_mask)
         ]
         with torch.no_grad():
             cast(Presto, pretrained_presto).eval()
@@ -132,7 +137,9 @@ def get_encodings(dl, pretrained_presto):
     return batch_encodings, batch_targets
 
 
-def predict_with_head(dl, finetuned_model):
+def predict_with_head(dl: DataLoader,
+                      finetuned_model: PrestoFineTuningModel,
+                       device: Literal["cpu", "cuda"] = "cpu"):
     test_preds, targets = [], []
     for x, y, dw, latlons, month, variable_mask in dl:
         targets.append(y)
@@ -164,12 +171,12 @@ def revert_to_original_units(y_norm, upper_bound, lower_bound):
 
 
 def evaluate(
-    pretrained_model,
-    ds_model,
-    dl_val,
-    up_val,
-    low_val,
+    pretrained_model: PrestoFineTuningModel,
+    ds_model: Union[CatBoostRegressor, CatBoostClassifier],
+    dl_val: DataLoader,
     task: Literal["regression", "binary", "multiclass"],
+    up_val: Optional[Union[int, float]] = None,
+    low_val: Optional[Union[int, float]] = None,
 ):
     """
     Evaluate the performance of a deep learning model on a validation dataset.
@@ -187,7 +194,8 @@ def evaluate(
     encodings, targets = get_encodings(dl_val, pretrained_model)
     targets = revert_to_original_units(targets, up_val, low_val)
     preds = ds_model.predict(encodings)
-    preds = revert_to_original_units(preds, up_val, low_val)
+    if up_val is not None and low_val is not None:
+        preds = revert_to_original_units(preds, up_val, low_val)
     if task == "regression":
         metrics = {
             "RMSE": float(np.sqrt(mean_squared_error(targets, preds))),
