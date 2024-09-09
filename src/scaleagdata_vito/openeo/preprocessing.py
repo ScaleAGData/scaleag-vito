@@ -1,5 +1,6 @@
 from typing import Optional
 
+import geojson
 from openeo import Connection, DataCube
 from openeo_gfmap import BackendContext, FetchType, SpatialContext, TemporalContext
 from openeo_gfmap.preprocessing.compositing import mean_compositing, median_compositing
@@ -54,6 +55,20 @@ def scaleag_preprocessed_inputs_gfmap(
     disable_meteo: bool = False,
     tile_size: Optional[int] = None,
 ) -> DataCube:
+    """
+    Preprocesses data during OpenEO extraction to prepare inputs for Presto.
+    Args:
+        connection (Connection): The connection to the backend.
+        backend_context (BackendContext): The backend context.
+        spatial_extent (SpatialContext): The spatial extent.
+        temporal_extent (TemporalContext): The temporal extent.
+        period (str, optional): The period for compositing. Defaults to "dekad".
+        fetch_type (Optional[FetchType], optional): The fetch type. Defaults to FetchType.POINT.
+        disable_meteo (bool, optional): Flag to disable meteorological data. Defaults to False.
+        tile_size (Optional[int], optional): The tile size. Defaults to None.
+    Returns:
+        DataCube: The preprocessed data cube.
+    """
     # Extraction of S2 from GFMAP
     s2_data = raw_datacube_S2(
         connection=connection,
@@ -126,3 +141,39 @@ def scaleag_preprocessed_inputs_gfmap(
         )
         data = data.merge_cubes(meteo_data)
     return data
+
+
+def run_openeo_extraction_job(gdf, output_path, job_params):
+    """
+    Runs an OpenEO extraction job using the provided parameters.
+    Args:
+        gdf (GeoDataFrame): The GeoDataFrame containing the spatial extent.
+        output_path (str): The path to save the output file.
+        job_params (dict): A dictionary containing the job parameters.
+    Returns:
+        None
+    """
+
+    geometry_latlon = geojson.loads(gdf.to_json())
+    inputs = scaleag_preprocessed_inputs_gfmap(
+        connection=job_params["connection"],
+        backend_context=job_params["backend_context"],
+        spatial_extent=geometry_latlon,
+        temporal_extent=job_params["temporal_extent"],
+        fetch_type=job_params["fetch_type"],
+        disable_meteo=job_params["disable_meteo"],
+    )
+    cube = inputs.aggregate_spatial(geometries=geometry_latlon, reducer="mean")
+
+    job = cube.create_job(
+        outputfile=output_path,
+        out_format=job_params["out_format"],
+        title=job_params["title"],
+        job_options={
+            "driver-memory": "4g",
+            "executor-memoryOverhead": "4g",
+            "soft-error": True,
+        },
+    )
+    job.start_and_wait()
+    job.download_result(output_path)
