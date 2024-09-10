@@ -1,6 +1,9 @@
-from typing import Optional
+import pathlib
+import warnings
+from typing import Optional, Union
 
 import geojson
+import xarray as xr
 from openeo import Connection, DataCube
 from openeo_gfmap import BackendContext, FetchType, SpatialContext, TemporalContext
 from openeo_gfmap.preprocessing.compositing import mean_compositing, median_compositing
@@ -10,6 +13,8 @@ from worldcereal.openeo.preprocessing import (
     raw_datacube_S1,
     raw_datacube_S2,
 )
+
+warnings.simplefilter(action="ignore", category=FutureWarning)
 
 
 def precomposited_datacube_METEO(
@@ -177,3 +182,10 @@ def run_openeo_extraction_job(gdf, output_path, job_params):
     )
     job.start_and_wait()
     job.download_result(output_path)
+
+
+def merge_datacubes(dataset, subset):
+    if isinstance(dataset, Union[str, pathlib.PosixPath]):
+        dataset = xr.load_dataset(dataset)
+    subset = xr.load_dataset(subset)
+    return xr.concat([dataset, subset], dim="feature")

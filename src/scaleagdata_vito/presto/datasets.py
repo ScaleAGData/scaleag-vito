@@ -46,7 +46,7 @@ class ScaleAgBase(Dataset):
         target_name: str,
         task: Literal["regression", "binary", "multiclass"],
     ):
-        self.df = dataframe
+        self.df = dataframe.replace({np.nan: self._NODATAVALUE})
         self.target_name = target_name
         self.task = task
 
@@ -75,7 +75,7 @@ class ScaleAgBase(Dataset):
 
         latlon = np.array([row_d["lat"], row_d["lon"]], dtype=np.float32)
         month = datetime.strptime(row_d["start_date"], "%Y-%m-%d").month - 1
-        
+
         eo_data = np.zeros((cls.NUM_TIMESTEPS, len(BANDS)))
         # an assumption we make here is that all timesteps for a token
         # have the same masking
@@ -97,7 +97,7 @@ class ScaleAgBase(Dataset):
                 values[idx_valid] = values[idx_valid] / (100 * 1000.0)
             elif presto_val == "temperature_2m":
                 # remove scaling. conversion to celsius is done in the normalization
-                values[idx_valid] = values[idx_valid] / 100 
+                values[idx_valid] = values[idx_valid] / 100
             mask[:, IDX_TO_BAND_GROUPS[presto_val]] += ~idx_valid
             # add values to eo at specifix index. the order followed is the one suggested by BANDS
             eo_data[:, BANDS.index(presto_val)] = values
@@ -123,8 +123,8 @@ class ScaleAgBase(Dataset):
     def normalize_and_mask(cls, eo: np.ndarray):
         # TODO: this can be removed
         keep_indices = [idx for idx, val in enumerate(BANDS) if val != "B9"]
-        
-        normed_eo = S1_S2_ERA5_SRTM.normalize(eo) # this adds NDVI and normalizes 
+
+        normed_eo = S1_S2_ERA5_SRTM.normalize(eo)  # this adds NDVI and normalizes
         # TODO: fix this. For now, we replicate the previous behaviour
         # only keeps the bands present in the data after normalization and sets to 0 the no_data locations
         normed_eo = np.where(eo[:, keep_indices] != cls._NODATAVALUE, normed_eo, 0)
@@ -134,7 +134,7 @@ class ScaleAgBase(Dataset):
     def check(array: np.ndarray) -> np.ndarray:
         assert not np.isnan(array).any()
         return array
-     
+
 
 class ScaleAGDataset(ScaleAgBase):
 
@@ -154,7 +154,7 @@ class ScaleAGDataset(ScaleAgBase):
             )
             self.mean = np.mean(dataframe[target_name])
             self.std = np.std(dataframe[target_name])
-            
+
         super().__init__(dataframe, target_name, task)
 
     def __getitem__(self, idx):
@@ -181,17 +181,17 @@ class ScaleAGDataset(ScaleAgBase):
     def normalize_target(self, target):
         return (target - self.LOWER_BOUND) / (self.UPPER_BOUND - self.LOWER_BOUND)
         # return self.z_scaling(target)
-    
+
     def z_scaling(self, x):
         return (x - self.mean) / self.std
-    
+
     def revert_to_original_units(self, target_norm):
         return target_norm * (self.UPPER_BOUND - self.LOWER_BOUND) + self.LOWER_BOUND
         # return (target_norm * self.std) + self.mean
 
 
 class ScaleAG10DDataset(ScaleAGDataset):
-    
+
     NUM_TIMESTEPS = 36
 
     def __getitem__(self, idx):

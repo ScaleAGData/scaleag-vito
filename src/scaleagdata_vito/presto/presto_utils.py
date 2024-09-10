@@ -6,13 +6,18 @@ from typing import Literal, Optional, Union, cast
 import numpy as np
 import requests
 import torch
+from catboost import CatBoostClassifier, CatBoostRegressor
 from loguru import logger
 from presto.presto import Presto, PrestoFineTuningModel, get_sinusoid_encoding_table
-from torch.utils.data import DataLoader
-from catboost import CatBoostRegressor, CatBoostClassifier
 from presto.utils import device
-from sklearn.metrics import explained_variance_score, mean_squared_error, r2_score
+from sklearn.metrics import (
+    classification_report,
+    explained_variance_score,
+    mean_squared_error,
+    r2_score,
+)
 from torch import nn
+from torch.utils.data import DataLoader
 
 default_model_kwargs = {
     "encoder_embedding_size": 128,
@@ -80,8 +85,7 @@ def load_pretrained_model_from_url(
 
 
 def reinitialize_pos_embedding(
-    model: Union[Presto, PrestoFineTuningModel],
-    max_sequence_length: int
+    model: Union[Presto, PrestoFineTuningModel], max_sequence_length: int
 ):  # PrestoFineTuningModel
     # reinitialize encoder pos embed to stretch max length of time series
     model.encoder.pos_embed = nn.Parameter(
@@ -105,9 +109,11 @@ def reinitialize_pos_embedding(
     return model
 
 
-def get_encodings(dl: DataLoader,
-                  pretrained_presto: PrestoFineTuningModel, 
-                  device: Literal["cpu", "cuda"] = "cpu"):
+def get_encodings(
+    dl: DataLoader,
+    pretrained_presto: PrestoFineTuningModel,
+    device: Literal["cpu", "cuda"] = "cpu",
+):
     pretrained_presto.eval()
     batch_encodings, batch_targets = [], []
     for x, y, dw, latlons, month, variable_mask in dl:
@@ -137,9 +143,11 @@ def get_encodings(dl: DataLoader,
     return batch_encodings, batch_targets
 
 
-def predict_with_head(dl: DataLoader,
-                      finetuned_model: PrestoFineTuningModel,
-                       device: Literal["cpu", "cuda"] = "cpu"):
+def predict_with_head(
+    dl: DataLoader,
+    finetuned_model: PrestoFineTuningModel,
+    device: Literal["cpu", "cuda"] = "cpu",
+):
     test_preds, targets = [], []
     for x, y, dw, latlons, month, variable_mask in dl:
         targets.append(y)
@@ -192,9 +200,9 @@ def evaluate(
 
     """
     encodings, targets = get_encodings(dl_val, pretrained_model)
-    targets = revert_to_original_units(targets, up_val, low_val)
     preds = ds_model.predict(encodings)
     if up_val is not None and low_val is not None:
+        targets = revert_to_original_units(targets, up_val, low_val)
         preds = revert_to_original_units(preds, up_val, low_val)
     if task == "regression":
         metrics = {
@@ -203,7 +211,7 @@ def evaluate(
             "explained_var_score": float(explained_variance_score(targets, preds)),
         }
     elif task == "binary":
-        pass
+        metrics = classification_report(targets, preds)
     elif task == "multiclass":
-        pass
+        metrics = classification_report(targets, preds)
     return metrics, preds, targets
