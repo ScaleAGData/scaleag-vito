@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Literal, Optional, Union, cast
 
 import numpy as np
+import pandas as pd
 import requests
 import torch
 from catboost import CatBoostClassifier, CatBoostRegressor
@@ -229,6 +230,10 @@ def revert_to_original_units(y_norm, upper_bound, lower_bound):
     return y_norm * (upper_bound - lower_bound) + lower_bound
 
 
+def normalize_target(y, upper_bound, lower_bound):
+    return (y - lower_bound) / (upper_bound - lower_bound)
+
+
 def evaluate(
     pretrained_model: PrestoFineTuningModel,
     ds_model: Union[CatBoostRegressor, CatBoostClassifier],
@@ -267,3 +272,51 @@ def evaluate(
     elif task == "multiclass":
         metrics = classification_report(targets, preds)
     return metrics, preds, targets
+
+
+def get_feature_list(num_time_steps=36):
+    feature_list = ["DEM-alt-20m", "DEM-slo-20m", "lat", "lon"]
+    for i in range(num_time_steps):
+        feature_list += [
+            f"OPTICAL-B02-ts{i}-10m",
+            f"OPTICAL-B03-ts{i}-10m",
+            f"OPTICAL-B04-ts{i}-10m",
+            f"OPTICAL-B05-ts{i}-20m",
+            f"OPTICAL-B06-ts{i}-20m",
+            f"OPTICAL-B07-ts{i}-20m",
+            f"OPTICAL-B08-ts{i}-10m",
+            f"OPTICAL-B8A-ts{i}-20m",
+            f"OPTICAL-B11-ts{i}-20m",
+            f"OPTICAL-B12-ts{i}-20m",
+            f"SAR-VH-ts{i}-20m",
+            f"SAR-VV-ts{i}-20m",
+            f"METEO-precipitation_flux-ts{i}-100m",
+            f"METEO-temperature_mean-ts{i}-100m",
+        ]
+    return feature_list
+
+
+def evaluate_catboost(
+    ds_model: Union[CatBoostRegressor, CatBoostClassifier],
+    val_x: Union[np.ndarray, pd.DataFrame],
+    val_y: Union[np.ndarray, pd.Series],
+    task: Literal["regression", "binary", "multiclass"],
+    up_val: Optional[Union[int, float]] = None,
+    low_val: Optional[Union[int, float]] = None,
+):
+    preds = ds_model.predict(val_x)
+    if up_val is not None and low_val is not None:
+        val_y = revert_to_original_units(val_y, up_val, low_val)
+        preds = revert_to_original_units(preds, up_val, low_val)
+    if task == "regression":
+        metrics = {
+            "RMSE": float(np.sqrt(mean_squared_error(val_y, preds))),
+            "R2_score": float(r2_score(val_y, preds)),
+            "explained_var_score": float(explained_variance_score(val_y, preds)),
+            "MAPE": float(mean_absolute_percentage_error(val_y, preds)),
+        }
+    elif task == "binary":
+        metrics = classification_report(val_y, preds)
+    elif task == "multiclass":
+        metrics = classification_report(val_y, preds)
+    return metrics, preds, val_y
