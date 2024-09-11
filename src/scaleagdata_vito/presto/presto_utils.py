@@ -13,6 +13,7 @@ from presto.utils import device
 from sklearn.metrics import (
     classification_report,
     explained_variance_score,
+    mean_absolute_percentage_error,
     mean_squared_error,
     r2_score,
 )
@@ -32,6 +33,54 @@ default_model_kwargs = {
 }
 
 
+def load_pretrained_model(
+    model_path=None, finetuned=False, ss_dekadal=False, device="cpu"
+):
+    if finetuned:
+        # initialize architecture without loading pretrained model
+        model = Presto.construct(**default_model_kwargs)
+        # extend model architecture to dekadal
+        model = reinitialize_pos_embedding(model, max_sequence_length=72)
+        # if we try to load a PrestoFT model, the architecture will be encoder + head
+        # so we run the command to construct the same FT model architecture to be able
+        # to correctly load weights
+        model = model.construct_finetuning_model(num_outputs=1)
+        logger.info(f" Initialize Presto dekadal architecture with dekadal PrestoFT...")
+        best_model = torch.load(model_path, map_location=device)
+        model.load_state_dict(best_model)
+    else:
+        # load pretrained default Presto
+        if model_path is not None:
+            if ss_dekadal:
+                logger.info(
+                    f" Initialize Presto dekadal architecture with 10d ss trained WorldCereal Presto weights..."
+                )
+                # if model was self-supervised trained as decadal, first reinitialize positional
+                # embeddings then load weights
+                model = Presto.construct(**default_model_kwargs)
+                model = reinitialize_pos_embedding(model, max_sequence_length=72)
+                best_model = torch.load(model_path, map_location=device)
+                model.load_state_dict(best_model)
+            else:
+                logger.info(
+                    f" Initialize Presto dekadal architecture with 30d ss trained WorldCereal Presto weights..."
+                )
+                # if the model was self-supervised trained as monthly, first load weights then
+                # reinitialize positional embeddings
+                model = Presto.construct(**default_model_kwargs)
+                best_model = torch.load(model_path, map_location=device)
+                model.load_state_dict(best_model)
+                model = reinitialize_pos_embedding(model, max_sequence_length=72)
+        else:
+            logger.info(
+                f" Initialize Presto dekadal architecture with pretrained Presto weights..."
+            )
+            model = Presto.load_pretrained()
+            model = reinitialize_pos_embedding(model, max_sequence_length=72)
+    model.to(device)
+    return model
+
+
 def load_pretrained_model_from_url(
     model_url, finetuned=False, ss_dekadal=False, strict=False, device="cpu"
 ):
@@ -49,8 +98,6 @@ def load_pretrained_model_from_url(
         best_model = torch.load(io.BytesIO(response.content), map_location=device)
         model.load_state_dict(best_model, strict=strict)
     else:
-        # load pretrained default Presto
-        model = Presto.construct(**default_model_kwargs)
         if model_url != "":
             if ss_dekadal:
                 logger.info(
@@ -58,6 +105,7 @@ def load_pretrained_model_from_url(
                 )
                 # if model was self-supervised trained as decadal, first reinitialize positional
                 # embeddings then load weights
+                model = Presto.construct(**default_model_kwargs)
                 model = reinitialize_pos_embedding(model, max_sequence_length=72)
                 response = requests.get(model_url)
                 best_model = torch.load(
@@ -70,15 +118,18 @@ def load_pretrained_model_from_url(
                 )
                 # if the model was self-supervised trained as monthly, first load weights then
                 # reinitialize positional embeddings
+                model = Presto.construct(**default_model_kwargs)
                 response = requests.get(model_url)
                 best_model = torch.load(
                     io.BytesIO(response.content), map_location=device
                 )
+                model.load_state_dict(best_model, strict=strict)
                 model = reinitialize_pos_embedding(model, max_sequence_length=72)
         else:
             logger.info(
                 f" Initialize Presto dekadal architecture with pretrained Presto weights..."
             )
+            model = Presto.load_pretrained()
             model = reinitialize_pos_embedding(model, max_sequence_length=72)
     model.to(device)
     return model
@@ -209,6 +260,7 @@ def evaluate(
             "RMSE": float(np.sqrt(mean_squared_error(targets, preds))),
             "R2_score": float(r2_score(targets, preds)),
             "explained_var_score": float(explained_variance_score(targets, preds)),
+            "MAPE": float(mean_absolute_percentage_error(targets, preds)),
         }
     elif task == "binary":
         metrics = classification_report(targets, preds)

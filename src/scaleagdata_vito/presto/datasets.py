@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from typing import Callable, Dict, List, Literal, Optional, Tuple, cast
+from typing import Dict, Literal, Tuple
 
 import numpy as np
 import pandas as pd
@@ -180,14 +180,12 @@ class ScaleAGDataset(ScaleAgBase):
 
     def normalize_target(self, target):
         return (target - self.LOWER_BOUND) / (self.UPPER_BOUND - self.LOWER_BOUND)
-        # return self.z_scaling(target)
 
     def z_scaling(self, x):
         return (x - self.mean) / self.std
 
     def revert_to_original_units(self, target_norm):
         return target_norm * (self.UPPER_BOUND - self.LOWER_BOUND) + self.LOWER_BOUND
-        # return (target_norm * self.std) + self.mean
 
 
 class ScaleAG10DDataset(ScaleAGDataset):
@@ -197,7 +195,7 @@ class ScaleAG10DDataset(ScaleAGDataset):
     def __getitem__(self, idx):
         # Get the sample
         row = self.df.iloc[idx, :]
-        eo, mask_per_token, latlon, month, target = self.row_to_arrays(
+        eo, mask_per_token, latlon, _, target = self.row_to_arrays(
             row, self.target_name
         )
         mask_per_variable = np.repeat(mask_per_token, BAND_EXPANSION, axis=1)
