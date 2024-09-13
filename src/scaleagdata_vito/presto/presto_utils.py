@@ -195,6 +195,7 @@ def get_encodings(
 def predict_with_head(
     dl: DataLoader,
     finetuned_model: PrestoFineTuningModel,
+    task: Literal["regression", "binary", "multiclass"] = "regression",
     device: Literal["cpu", "cuda"] = "cpu",
 ):
     test_preds, targets = [], []
@@ -205,19 +206,21 @@ def predict_with_head(
         ]
         finetuned_model.eval()
         with torch.no_grad():
-            preds = (
-                finetuned_model(
-                    x_f,
-                    dynamic_world=dw_f.long(),
-                    mask=variable_mask_f,
-                    latlons=latlons_f,
-                    month=month_f,
-                )
-                .squeeze(dim=1)
-                .cpu()
-                .numpy()
-            )
-            test_preds.append(preds)
+            preds = finetuned_model(
+                x_f,
+                dynamic_world=dw_f.long(),
+                mask=variable_mask_f,
+                latlons=latlons_f,
+                month=month_f,
+            ).squeeze(dim=1)
+            # binary classification
+            if task == "binary":
+                preds = torch.sigmoid(preds)
+            # multiclass classification
+            elif task == "multiclass":
+                preds = nn.functional.softmax(preds)
+                preds = np.argmax(preds, axis=-1)
+            test_preds.append(preds.cpu().numpy())
     test_preds_np = np.concatenate(test_preds)
     target_np = np.concatenate(targets)
     return test_preds_np, target_np
@@ -233,9 +236,9 @@ def normalize_target(y, upper_bound, lower_bound):
 
 def evaluate(
     pretrained_model: PrestoFineTuningModel,
-    ds_model: Union[cb.CatBoostRegressor, cb.CatBoostClassifier],
     dl_val: DataLoader,
-    task: Literal["regression", "binary", "multiclass"],
+    ds_model: Union[cb.CatBoostRegressor, cb.CatBoostClassifier, None] = None,
+    task: Literal["regression", "binary", "multiclass"] = "regression",
     up_val: Optional[Union[int, float]] = None,
     low_val: Optional[Union[int, float]] = None,
 ):
@@ -252,8 +255,19 @@ def evaluate(
     - metrics: The performance metrics on validation dataset.
 
     """
-    encodings, targets = get_encodings(dl_val, pretrained_model)
-    preds = ds_model.predict(encodings)
+    if ds_model is None:
+        preds, targets = predict_with_head(dl_val, pretrained_model)
+        if task == "binary":
+            preds = preds > 0.5
+        # TBT on multiclass
+        elif task == "multiclass":
+            test_preds_np = [
+                dl_val.dataset.index_to_class[int(t)] for t in test_preds_np
+            ]
+            target_np = [dl_val.dataset.index_to_class[int(t)] for t in target_np]
+    else:
+        encodings, targets = get_encodings(dl_val, pretrained_model)
+        preds = ds_model.predict(encodings)
     if up_val is not None and low_val is not None:
         targets = revert_to_original_units(targets, up_val, low_val)
         preds = revert_to_original_units(preds, up_val, low_val)

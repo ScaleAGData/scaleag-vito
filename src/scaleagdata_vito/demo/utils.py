@@ -42,24 +42,27 @@ def prepare_cropland_data_for_presto(wc_df, sample_frac=0.005):
     return wc_dataset
 
 
-def compare_performance_regression(metrics_presto_cb, metrics_raw_cb):
+def compare_performance_regression(metrics_raw_cb, metrics_presto_cb, metrics_presto):
     del metrics_presto_cb["RMSE"]
     del metrics_raw_cb["RMSE"]
+    del metrics_presto["RMSE"]
 
     metrics = list(metrics_presto_cb.keys())
-    values_dict1 = list(metrics_presto_cb.values())
-    values_dict2 = list(metrics_raw_cb.values())
+    values_dict1 = list(metrics_raw_cb.values())
+    values_dict2 = list(metrics_presto_cb.values())
+    values_dict3 = list(metrics_presto.values())
+
     x = np.arange(len(metrics))
-    bar_width = 0.35
+    bar_width = 0.25
     fig, ax = plt.subplots()
     bars1 = ax.bar(
-        x - bar_width / 2, values_dict1, bar_width, label="Presto + Cb", color="skyblue"
+        x - bar_width, values_dict1, bar_width, label="Catboost", color="skyblue"
     )
-    bars2 = ax.bar(
-        x + bar_width / 2, values_dict2, bar_width, label="Catboost", color="salmon"
+    bars2 = ax.bar(x, values_dict2, bar_width, label="Presto + Cb", color="salmon")
+    bars3 = ax.bar(
+        x + bar_width, values_dict3, bar_width, label="Presto", color="lightgreen"
     )
-
-    for bars in [bars1, bars2]:
+    for bars in [bars1, bars2, bars3]:
         for bar in bars:
             yval = round(bar.get_height(), 2)
             ax.text(
@@ -71,32 +74,29 @@ def compare_performance_regression(metrics_presto_cb, metrics_raw_cb):
     ax.set_ylim(0, 1)
     ax.set_title("Performance Comparison on Regression task")
     ax.legend(loc="upper right", bbox_to_anchor=(1.3, 1))
-
+    ax.grid(True, which="both", linestyle="--", linewidth=0.7, alpha=0.7)
     plt.show()
 
 
-def compare_performance_classification(metrics_presto_cb, metrics_raw_cb):
+def compare_performance_classification(
+    metrics_raw_cb, metrics_presto_cb, metrics_presto
+):
     metrics = ["precision", "recall", "f1-score"]
-    values_report1 = [metrics_presto_cb["macro avg"][metric] for metric in metrics]
-    values_report2 = [metrics_raw_cb["macro avg"][metric] for metric in metrics]
+    values_report1 = [metrics_raw_cb["macro avg"][metric] for metric in metrics]
+    values_report2 = [metrics_presto_cb["macro avg"][metric] for metric in metrics]
+    values_report3 = [metrics_presto["macro avg"][metric] for metric in metrics]
 
     x = np.arange(len(metrics))
-    bar_width = 0.35
-
+    bar_width = 0.25
     fig, ax = plt.subplots()
     bars1 = ax.bar(
-        x - bar_width / 2,
-        values_report1,
-        bar_width,
-        label="Presto + Cb",
-        color="skyblue",
+        x - bar_width, values_report1, bar_width, label="Catboost", color="skyblue"
     )
-
-    bars2 = ax.bar(
-        x + bar_width / 2, values_report2, bar_width, label="Catboost", color="salmon"
+    bars2 = ax.bar(x, values_report2, bar_width, label="Presto + Cb", color="salmon")
+    bars3 = ax.bar(
+        x + bar_width, values_report3, bar_width, label="Presto", color="lightgreen"
     )
-
-    for bars in [bars1, bars2]:
+    for bars in [bars1, bars2, bars3]:
         for bar in bars:
             yval = round(bar.get_height(), 2)
             ax.text(
@@ -109,5 +109,5 @@ def compare_performance_classification(metrics_presto_cb, metrics_raw_cb):
 
     ax.set_title("Performance Comparison on Classification task")
     ax.legend(loc="upper right", bbox_to_anchor=(1.3, 1))
-
+    ax.grid(True, which="both", linestyle="--", linewidth=0.7, alpha=0.7)
     plt.show()
