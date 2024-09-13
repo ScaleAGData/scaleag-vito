@@ -1,5 +1,7 @@
 from typing import Union
 
+import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 
 from scaleagdata_vito.presto.presto_utils import get_feature_list, normalize_target
@@ -38,3 +40,74 @@ def prepare_cropland_data_for_presto(wc_df, sample_frac=0.005):
     # convert the target variable to binary
     wc_dataset["LANDCOVER_LABEL"] = (wc_dataset["LANDCOVER_LABEL"] == 11).astype(int)
     return wc_dataset
+
+
+def compare_performance_regression(metrics_presto_cb, metrics_raw_cb):
+    del metrics_presto_cb["RMSE"]
+    del metrics_raw_cb["RMSE"]
+
+    metrics = list(metrics_presto_cb.keys())
+    values_dict1 = list(metrics_presto_cb.values())
+    values_dict2 = list(metrics_raw_cb.values())
+    x = np.arange(len(metrics))
+    bar_width = 0.35
+    fig, ax = plt.subplots()
+    bars1 = ax.bar(
+        x - bar_width / 2, values_dict1, bar_width, label="Presto + Cb", color="skyblue"
+    )
+    bars2 = ax.bar(
+        x + bar_width / 2, values_dict2, bar_width, label="Catboost", color="salmon"
+    )
+
+    for bars in [bars1, bars2]:
+        for bar in bars:
+            yval = round(bar.get_height(), 2)
+            ax.text(
+                bar.get_x() + bar.get_width() / 2, yval, yval, ha="center", va="bottom"
+            )
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(metrics)
+    ax.set_ylim(0, 1)
+    ax.set_title("Performance Comparison on Regression task")
+    ax.legend(loc="upper right", bbox_to_anchor=(1.3, 1))
+
+    plt.show()
+
+
+def compare_performance_classification(metrics_presto_cb, metrics_raw_cb):
+    metrics = ["precision", "recall", "f1-score"]
+    values_report1 = [metrics_presto_cb["macro avg"][metric] for metric in metrics]
+    values_report2 = [metrics_raw_cb["macro avg"][metric] for metric in metrics]
+
+    x = np.arange(len(metrics))
+    bar_width = 0.35
+
+    fig, ax = plt.subplots()
+    bars1 = ax.bar(
+        x - bar_width / 2,
+        values_report1,
+        bar_width,
+        label="Presto + Cb",
+        color="skyblue",
+    )
+
+    bars2 = ax.bar(
+        x + bar_width / 2, values_report2, bar_width, label="Catboost", color="salmon"
+    )
+
+    for bars in [bars1, bars2]:
+        for bar in bars:
+            yval = round(bar.get_height(), 2)
+            ax.text(
+                bar.get_x() + bar.get_width() / 2, yval, yval, ha="center", va="bottom"
+            )
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(metrics)
+    ax.set_ylim(0, 1)
+
+    ax.set_title("Performance Comparison on Classification task")
+    ax.legend(loc="upper right", bbox_to_anchor=(1.3, 1))
+
+    plt.show()

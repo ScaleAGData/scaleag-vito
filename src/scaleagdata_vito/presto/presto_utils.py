@@ -265,9 +265,9 @@ def evaluate(
             "MAPE": float(mean_absolute_percentage_error(targets, preds)),
         }
     elif task == "binary":
-        metrics = classification_report(targets, preds)
+        metrics = classification_report(targets, preds, output_dict=True)
     elif task == "multiclass":
-        metrics = classification_report(targets, preds)
+        metrics = classification_report(targets, preds, output_dict=True)
     return metrics, preds, targets
 
 
@@ -313,9 +313,9 @@ def evaluate_catboost(
             "MAPE": float(mean_absolute_percentage_error(val_y, preds)),
         }
     elif task == "binary":
-        metrics = classification_report(val_y, preds)
+        metrics = classification_report(val_y, preds, output_dict=True)
     elif task == "multiclass":
-        metrics = classification_report(val_y, preds)
+        metrics = classification_report(val_y, preds, output_dict=True)
     return metrics, preds, val_y
 
 
