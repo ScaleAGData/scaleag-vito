@@ -1,16 +1,13 @@
 import io
-import json
-from pathlib import Path
 from typing import Literal, Optional, Union, cast
 
+import catboost as cb
 import numpy as np
 import pandas as pd
 import requests
 import torch
-from catboost import CatBoostClassifier, CatBoostRegressor
 from loguru import logger
 from presto.presto import Presto, PrestoFineTuningModel, get_sinusoid_encoding_table
-from presto.utils import device
 from sklearn.metrics import (
     classification_report,
     explained_variance_score,
@@ -236,7 +233,7 @@ def normalize_target(y, upper_bound, lower_bound):
 
 def evaluate(
     pretrained_model: PrestoFineTuningModel,
-    ds_model: Union[CatBoostRegressor, CatBoostClassifier],
+    ds_model: Union[cb.CatBoostRegressor, cb.CatBoostClassifier],
     dl_val: DataLoader,
     task: Literal["regression", "binary", "multiclass"],
     up_val: Optional[Union[int, float]] = None,
@@ -297,7 +294,7 @@ def get_feature_list(num_time_steps=36):
 
 
 def evaluate_catboost(
-    ds_model: Union[CatBoostRegressor, CatBoostClassifier],
+    ds_model: Union[cb.CatBoostRegressor, cb.CatBoostClassifier],
     val_x: Union[np.ndarray, pd.DataFrame],
     val_y: Union[np.ndarray, pd.Series],
     task: Literal["regression", "binary", "multiclass"],
@@ -320,3 +317,31 @@ def evaluate_catboost(
     elif task == "multiclass":
         metrics = classification_report(val_y, preds)
     return metrics, preds, val_y
+
+
+def train_catboost_on_encodings(
+    dl_train: DataLoader,
+    presto_model: PrestoFineTuningModel,
+    task: Literal["regression", "binary", "multiclass"],
+    cb_device: Literal["GPU", None] = None,
+):
+
+    if task == "regression":
+        cbm = cb.CatBoostRegressor(
+            random_state=3,
+            task_type=cb_device,
+            logging_level="Silent",
+            loss_function="RMSE",
+        )
+    else:
+        cbm = cb.CatBoostClassifier(
+            random_state=3,
+            task_type=cb_device,
+            logging_level="Silent",
+        )
+    logger.info("Computing Presto encodings")
+    encodings_np, targets = get_encodings(dl_train, presto_model, device="cpu")
+    logger.info(f"Fitting Catboost model on Presto encodings")
+    train_dataset = cb.Pool(encodings_np, targets)
+    cbm.fit(train_dataset)
+    return cbm
