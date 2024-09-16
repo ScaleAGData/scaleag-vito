@@ -1,0 +1,85 @@
+[build-system]
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.sdist]
+exclude = [
+  "/dist",
+  "/notebooks",
+  "/scripts",
+  "/bin",
+  "/tests",
+]
+
+[tool.hatch.version]
+path = "src/scaleagdata_vito/_version.py"
+pattern = "^__version__ = ['\"](?P<version>[^'\"]+)['\"]$"
+
+[project]
+name = "scaleag-vito"
+authors = [
+  { name="Giorgia Milli" },
+  { name="Kristof Van Tricht" },
+  { name="Christina Butsko" },
+]
+description = "using Presto for few-shot learning downstream tasks"
+readme = "README.md"
+requires-python = ">=3.8"
+dynamic = ["version"]
+# version = "2.0.2"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "catboost==1.2.5",
+    "rioxarray>=0.13.0",
+    "loguru>=0.7.2",
+    "geojson",
+    "numpy<2.0.0",
+    "netcdf4<=1.6.4",
+    "h5netcdf>=1.1.0",
+    "openeo>=0.31.0",
+    "cftime",
+    "presto-worldcereal==0.1.2",
+    "pytest-depends",
+    "pyarrow",
+    "geopandas",
+    "scipy",
+    "scikit-learn",
+    "scikit-image",
+  ]
+
+[project.urls]
+"Homepage" = "https://github.com/ScaleAGData/scaleag-vito"
+"Bug Tracker" = "https://github.com/ScaleAGData/scaleag-vito/issues"
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=7.4.0",
+  "matplotlib>=3.3.0",
+  "wandb"
+]
+train = [ 
+]
+
+[tool.pytest.ini_options]
+testpaths = [
+  "tests",
+]
+addopts = [
+  "--import-mode=prepend",
+]
+
+[tool.isort]
+profile = "black"
+
+
+[tool.ruff]
+# line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F"]
+ignore = [
+  "E501",  # Ignore "line-too-long" issues, let black handle that.
+]
