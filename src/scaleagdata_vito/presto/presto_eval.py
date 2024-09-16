@@ -1,16 +1,12 @@
 import logging
 from copy import deepcopy
 from dataclasses import dataclass
-from functools import partial
-from pathlib import Path
 from typing import Callable, Dict, List, Literal, Optional, Sequence, Tuple, Union, cast
 
-import geopandas as gpd
 import numpy as np
 import pandas as pd
 import torch
 from catboost import CatBoostClassifier, CatBoostRegressor, Pool
-from presto import utils
 from presto.presto import (
     FinetuningHead,
     Presto,
@@ -19,24 +15,23 @@ from presto.presto import (
     param_groups_lrd,
 )
 from presto.utils import DEFAULT_SEED, device
+from scaleagdata.datasets import ScaleAG10DDataset, ScaleAGDataset
 from sklearn.base import BaseEstimator, clone
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.linear_model import LinearRegression, LogisticRegression
 from sklearn.metrics import (
     explained_variance_score,
     f1_score,
+    mean_absolute_percentage_error,
     mean_squared_error,
     precision_score,
     r2_score,
     recall_score,
-    mean_absolute_percentage_error
 )
 from torch import nn
 from torch.optim import AdamW
-from torch.utils.data import DataLoader, TensorDataset
+from torch.utils.data import DataLoader
 from tqdm import tqdm
-
-from scaleagdata.datasets import ScaleAG10DDataset, ScaleAGDataset
 
 logger = logging.getLogger("__main__")
 
@@ -72,7 +67,7 @@ class ScaleAGYieldEval:
         self.train_df = self.prep_dataframe(train_data, dekadal=dekadal)
         self.val_df = self.prep_dataframe(val_data, dekadal=dekadal)
         self.test_df = self.val_df.copy()
-        
+
         self.target_name = target_name
         self.dekadal = dekadal
         self.task = task
@@ -80,19 +75,22 @@ class ScaleAGYieldEval:
             self.num_outputs = len(self.train_df[target_name].unique())
 
         self.ds_class = ScaleAG10DDataset if dekadal else ScaleAGDataset
-    
+
     @staticmethod
     def prep_dataframe(
         df: pd.DataFrame,
         dekadal: bool = False,
     ):
         # SAR cannot equal 0.0 since we take the log of it
-        cols = [f"SAR-{s}-ts{t}-20m" for s in ["VV", "VH"] for t in range(36 if dekadal else 12)]
+        cols = [
+            f"SAR-{s}-ts{t}-20m"
+            for s in ["VV", "VH"]
+            for t in range(36 if dekadal else 12)
+        ]
         df = df.drop_duplicates(subset=["lat", "lon", "end_date"])
         df = df[~pd.isna(df).any(axis=1)]
         df = df[~(df.loc[:, cols] == 0.0).any(axis=1)]
         return df
-    
 
     def _construct_finetuning_model(
         self, pretrained_model: Union[Presto, PrestoFineTuningModel]
@@ -101,18 +99,15 @@ class ScaleAGYieldEval:
             # if we are passing a model that had already been fine tuned then we need
             # then we need to adjust a bit the initialization as the construct_finetuning_model
             # expects a Presto architecture but here we already have a PrestoFineTuningModel
-            model = cast(
-                Callable,
-                self.construct_from_finetuned(
-                    pretrained_model.encoder
-                ),
+            model = cast(Callable, self.construct_from_finetuned)(
+                encoder=pretrained_model.encoder
             )
         else:
             model = cast(Callable, pretrained_model.construct_finetuning_model)(
                 num_outputs=self.num_outputs
             )
-        
-        # reinitialize positional embedding if decadal 
+
+        # reinitialize positional embedding if decadal
         if self.dekadal:
             max_sequence_length = 72  # can this be 36?
             old_pos_embed_device = model.encoder.pos_embed.device
@@ -128,7 +123,9 @@ class ScaleAGYieldEval:
             pos_embed = get_sinusoid_encoding_table(
                 model.encoder.pos_embed.shape[1], model.encoder.pos_embed.shape[-1]
             )
-            model.encoder.pos_embed.data.copy_(pos_embed.to(device=old_pos_embed_device))
+            model.encoder.pos_embed.data.copy_(
+                pos_embed.to(device=old_pos_embed_device)
+            )
         return model
 
     def construct_from_finetuned(
@@ -148,14 +145,11 @@ class ScaleAGYieldEval:
         for model in models:
             if model == "Logistic Regression":
                 model_dict[model] = LogisticRegression(
-                    class_weight="balanced",
-                    max_iter=1000,
-                    random_state=self.seed
+                    class_weight="balanced", max_iter=1000, random_state=self.seed
                 )
             elif model == "Random Forest Classifier":
                 model_dict[model] = RandomForestClassifier(
-                    class_weight="balanced", 
-                    random_state=self.seed
+                    class_weight="balanced", random_state=self.seed
                 )
             elif model == "CatBoostClassifier":
                 model_dict[model] = CatBoostClassifier(
@@ -165,7 +159,7 @@ class ScaleAGYieldEval:
                     early_stopping_rounds=20,
                     l2_leaf_reg=3,
                     random_state=self.seed,
-                    auto_class_weights="Balanced"
+                    auto_class_weights="Balanced",
                 )
             elif model == "Linear Regression":
                 model_dict[model] = LinearRegression()
@@ -197,7 +191,9 @@ class ScaleAGYieldEval:
             ]
         pretrained_model.eval()
 
-        def dataloader_to_encodings_and_targets(dl: DataLoader) -> Tuple[np.ndarray, np.ndarray]:
+        def dataloader_to_encodings_and_targets(
+            dl: DataLoader,
+        ) -> Tuple[np.ndarray, np.ndarray]:
             encoding_list, target_list = [], []
             for x, y, dw, latlons, month, variable_mask in dl:
                 x_f, dw_f, latlons_f, month_f, variable_mask_f = [
@@ -222,21 +218,25 @@ class ScaleAGYieldEval:
             if len(targets.shape) == 2 and targets.shape[1] == 1:
                 targets = targets.ravel()
             return encodings_np, targets
-        
+
         train_encodings, train_targets = dataloader_to_encodings_and_targets(dl)
         val_encodings, val_targets = dataloader_to_encodings_and_targets(val_dl)
-        
+
         fit_models = []
         model_dict = self.setup_model_dict(models)
         for model in tqdm(models, desc="Fitting sklearn models"):
             if model == "CatBoostClassifier":
                 fit_models.append(
                     clone(model_dict[model]).fit(
-                        train_encodings, train_targets, eval_set=Pool(val_encodings, val_targets)
+                        train_encodings,
+                        train_targets,
+                        eval_set=Pool(val_encodings, val_targets),
                     )
                 )
             else:
-                fit_models.append(clone(model_dict[model]).fit(train_encodings, train_targets))
+                fit_models.append(
+                    clone(model_dict[model]).fit(train_encodings, train_targets)
+                )
         return fit_models
 
     # @staticmethod
@@ -287,7 +287,7 @@ class ScaleAGYieldEval:
                     .cpu()
                     .numpy()
                 )
-                if self.task == 'binary':
+                if self.task == "binary":
                     preds = finetuned_model.predict_proba(encodings)[:, 1]
                 else:
                     preds = finetuned_model.predict(encodings)
@@ -307,7 +307,7 @@ class ScaleAGYieldEval:
 
         dl = DataLoader(
             test_ds,
-            batch_size= 2048,  # 4096, #8192,
+            batch_size=2048,  # 4096, #8192,
             shuffle=False,  # keep as False!
             num_workers=Hyperparams.num_workers,
         )
@@ -326,13 +326,12 @@ class ScaleAGYieldEval:
             target_np = [test_ds.index_to_class[int(t)] for t in target_np]
         # targets are normalized during training to avoid gradient explosion.
         # revert to original units
-        
+
         elif self.task == "regression":
             target_np = test_ds.revert_to_original_units(target_np)
             test_preds_np = test_ds.revert_to_original_units(test_preds_np)
 
         prefix = f"{self.name}_{finetuned_model.__class__.__name__}"
-
 
         if self.task == "binary":
             return {
@@ -350,7 +349,8 @@ class ScaleAGYieldEval:
                     explained_variance_score(target_np, test_preds_np)
                 ),
                 f"{prefix}_MAPE": float(
-                    mean_absolute_percentage_error(target_np, test_preds_np))
+                    mean_absolute_percentage_error(target_np, test_preds_np)
+                ),
             }
         else:
             labs = list(test_ds.index_to_class.values())
@@ -368,25 +368,16 @@ class ScaleAGYieldEval:
                 ),
             }
 
-
     def finetune(self, pretrained_model) -> PrestoFineTuningModel:
         hyperparams = Hyperparams()
         model = self._construct_finetuning_model(pretrained_model)
 
         parameters = param_groups_lrd(model)
         optimizer = AdamW(parameters, lr=hyperparams.lr)
-        
-        train_ds = self.ds_class(
-            self.train_df,
-            self.target_name,
-            self.task
-        )
 
-        val_ds = self.ds_class(
-            self.val_df,
-            self.target_name,
-            self.task
-        )
+        train_ds = self.ds_class(self.train_df, self.target_name, self.task)
+
+        val_ds = self.ds_class(self.val_df, self.target_name, self.task)
 
         if self.task == "regression":
             loss_fn = nn.MSELoss()
@@ -506,34 +497,26 @@ class ScaleAGYieldEval:
         model.load_state_dict(best_model_dict)
 
         model.eval()
-        return model #, val_loss, train_loss
+        return model
 
     def finetuning_results_sklearn(
         self, sklearn_model_modes: List[str], finetuned_model: PrestoFineTuningModel
     ) -> Dict:
 
-        results_dict = {}        
+        results_dict = {}
         if len(sklearn_model_modes) > 0:
-            
-            train_ds = self.ds_class(
-                self.train_df,
-                self.target_name,
-                self.task
-            )
 
-            val_ds = self.ds_class(
-                self.val_df,
-                self.target_name,
-                self.task
-            )
-        
+            train_ds = self.ds_class(self.train_df, self.target_name, self.task)
+
+            val_ds = self.ds_class(self.val_df, self.target_name, self.task)
+
             dl = DataLoader(
                 train_ds,
-                batch_size= 2048,
+                batch_size=2048,
                 shuffle=False,
                 num_workers=4,
             )
-            
+
             val_dl = DataLoader(
                 val_ds,
                 batch_size=2048,
@@ -551,7 +534,7 @@ class ScaleAGYieldEval:
                 results_dict.update(self.evaluate(sklearn_model, finetuned_model))
 
         return results_dict
-        
+
     def finetuning_results(
         self,
         pretrained_model,
@@ -566,10 +549,12 @@ class ScaleAGYieldEval:
                 "Random Forest Regressor",
                 "CatBoostRegressor",
             ]
-            results_dict = {}
-            # we want to always finetune the model, since the sklearn models
-            # will use the finetuned model as a base
-            finetuned_model = self.finetune(pretrained_model)
-            results_dict.update(self.evaluate(finetuned_model, None))
-            results_dict.update(self.finetuning_results_sklearn(sklearn_model_modes, finetuned_model))
-            return results_dict, finetuned_model #, val_loss, train_loss
+        results_dict = {}
+        # we want to always finetune the model, since the sklearn models
+        # will use the finetuned model as a base
+        finetuned_model = self.finetune(pretrained_model)
+        results_dict.update(self.evaluate(finetuned_model, None))
+        results_dict.update(
+            self.finetuning_results_sklearn(sklearn_model_modes, finetuned_model)
+        )
+        return results_dict, finetuned_model

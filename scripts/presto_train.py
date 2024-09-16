@@ -11,11 +11,11 @@ from presto.presto import Presto
 from presto.utils import (
     DEFAULT_SEED,
     config_dir,
+    data_dir,
     device,
     initialize_logging,
     seed_everything,
 )
-
 from scaleagdata.presto.presto_eval import ScaleAGYieldEval
 from scaleagdata.presto.presto_utils import reinitialize_pos_embedding
 
@@ -84,8 +84,6 @@ if args["model_path"]:
 
 if args["data_dir"]:
     data_dir = Path(args["data_dir"])
-else:
-    from presto.utils import data_dir
 
 run_id = None
 
@@ -126,13 +124,13 @@ if finetuned and dekadal:
     # so we run the command to construct the same FT model architecture to be able
     # to correctly load weights
     model = model.construct_finetuning_model(args["num_outputs"])
-    logger.info(f" Initialize Presto dekadal architecture with dekadal PrestoFT...")
+    logger.info(" Initialize Presto dekadal architecture with dekadal PrestoFT...")
     ft_model = torch.load(model_path, map_location=device)
     model.load_state_dict(ft_model)
 elif dekadal:
     # load pretrained default Presto
     logger.info(
-        f" Initialize Presto dekadal architecture with 10d WorldCereal Presto weights..."
+        " Initialize Presto dekadal architecture with 10d WorldCereal Presto weights..."
     )
     model = Presto.construct(**model_kwargs)
     # extend model architecture to dekadal
@@ -144,7 +142,7 @@ elif dekadal:
 else:
     # load pretrained default Presto
     logger.info(
-        f" Initialize Presto dekadal architecture with default WorldCereal Presto weights..."
+        " Initialize Presto dekadal architecture with default WorldCereal Presto weights..."
     )
     model = Presto.construct(**model_kwargs)
     best_model = torch.load(model_path, map_location=device)
