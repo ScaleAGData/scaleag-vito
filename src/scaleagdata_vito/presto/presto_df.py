@@ -106,7 +106,7 @@ def filter_ts(df_to_filter, window_of_interest, no_data_value=65535, num_ts=36):
         df_to_filter["end_date"].unique()
     ):
         ref_row = df_to_filter.iloc[0]
-        months = get_month_array(num_ts, ref_row)
+        _ = get_month_array(num_ts, ref_row)
         ts_to_filter = [
             t
             for t in range(12)
@@ -119,7 +119,7 @@ def filter_ts(df_to_filter, window_of_interest, no_data_value=65535, num_ts=36):
     else:
         for i, row in tqdm.tqdm(df_to_filter.iterrows()):
             row = df_to_filter.iloc[i]
-            months = get_month_array(num_ts, row)
+            _ = get_month_array(num_ts, row)
             ts_to_filter = [
                 t
                 for t in range(12)
