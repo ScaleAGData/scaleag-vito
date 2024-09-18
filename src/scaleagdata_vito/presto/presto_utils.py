@@ -1,6 +1,4 @@
 import io
-import json
-from pathlib import Path
 from typing import Literal, cast
 
 import numpy as np
@@ -37,7 +35,7 @@ def load_pretrained_model_from_url(
         # so we run the command to construct the same FT model architecture to be able
         # to correctly load weights
         model = model.construct_finetuning_model(num_outputs=1)
-        logger.info(f" Initialize Presto dekadal architecture with dekadal PrestoFT...")
+        logger.info(" Initialize Presto dekadal architecture with dekadal PrestoFT...")
         response = requests.get(model_url)
         best_model = torch.load(io.BytesIO(response.content), map_location=device)
         model.load_state_dict(best_model, strict=strict)
@@ -47,7 +45,7 @@ def load_pretrained_model_from_url(
         if model_url != "":
             if ss_dekadal:
                 logger.info(
-                    f" Initialize Presto dekadal architecture with 10d ss trained WorldCereal Presto weights..."
+                    " Initialize Presto dekadal architecture with 10d ss trained WorldCereal Presto weights..."
                 )
                 # if model was self-supervised trained as decadal, first reinitialize positional
                 # embeddings then load weights
@@ -59,7 +57,7 @@ def load_pretrained_model_from_url(
                 model.load_state_dict(best_model, strict=strict)
             else:
                 logger.info(
-                    f" Initialize Presto dekadal architecture with 30d ss trained WorldCereal Presto weights..."
+                    " Initialize Presto dekadal architecture with 30d ss trained WorldCereal Presto weights..."
                 )
                 # if the model was self-supervised trained as monthly, first load weights then
                 # reinitialize positional embeddings
@@ -70,7 +68,7 @@ def load_pretrained_model_from_url(
                 model = reinitialize_pos_embedding(model, max_sequence_length=72)
         else:
             logger.info(
-                f" Initialize Presto dekadal architecture with pretrained Presto weights..."
+                " Initialize Presto dekadal architecture with pretrained Presto weights..."
             )
             model = reinitialize_pos_embedding(model, max_sequence_length=72)
     model.to(device)
