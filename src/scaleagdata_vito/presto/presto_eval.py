@@ -100,9 +100,8 @@ class ScaleAGYieldEval:
             # if we are passing a model that had already been fine tuned then we need
             # then we need to adjust a bit the initialization as the construct_finetuning_model
             # expects a Presto architecture but here we already have a PrestoFineTuningModel
-            model = cast(
-                Callable,
-                self.construct_from_finetuned(pretrained_model.encoder),
+            model = cast(Callable, self.construct_from_finetuned)(
+                pretrained_model.encoder
             )
         else:
             model = cast(Callable, pretrained_model.construct_finetuning_model)(
@@ -499,17 +498,16 @@ class ScaleAGYieldEval:
         model.load_state_dict(best_model_dict)
 
         model.eval()
-        return model  # , val_loss, train_loss
+        return model
 
     def finetuning_results_sklearn(
         self, sklearn_model_modes: List[str], finetuned_model: PrestoFineTuningModel
     ) -> Dict:
 
         results_dict = {}
+
         if len(sklearn_model_modes) > 0:
-
             train_ds = self.ds_class(self.train_df, self.target_name, self.task)
-
             val_ds = self.ds_class(self.val_df, self.target_name, self.task)
 
             dl = DataLoader(
@@ -525,6 +523,7 @@ class ScaleAGYieldEval:
                 shuffle=False,
                 num_workers=4,
             )
+
             sklearn_models = self.finetune_sklearn_model(
                 dl,
                 val_dl,
@@ -534,7 +533,6 @@ class ScaleAGYieldEval:
             for sklearn_model in sklearn_models:
                 logger.info(f"Evaluating {sklearn_model}...")
                 results_dict.update(self.evaluate(sklearn_model, finetuned_model))
-
         return results_dict
 
     def finetuning_results(
@@ -551,12 +549,12 @@ class ScaleAGYieldEval:
                 "Random Forest Regressor",
                 "CatBoostRegressor",
             ]
-            results_dict = {}
-            # we want to always finetune the model, since the sklearn models
-            # will use the finetuned model as a base
-            finetuned_model = self.finetune(pretrained_model)
-            results_dict.update(self.evaluate(finetuned_model, None))
-            results_dict.update(
-                self.finetuning_results_sklearn(sklearn_model_modes, finetuned_model)
-            )
-            return results_dict, finetuned_model  # , val_loss, train_loss
+        results_dict = {}
+        # we want to always finetune the model, since the sklearn models
+        # will use the finetuned model as a base
+        finetuned_model = self.finetune(pretrained_model)
+        results_dict.update(self.evaluate(finetuned_model, None))
+        results_dict.update(
+            self.finetuning_results_sklearn(sklearn_model_modes, finetuned_model)
+        )
+        return results_dict, finetuned_model  # , val_loss, train_loss
