@@ -67,13 +67,11 @@ class ScaleAGYieldEval:
         self.train_df = self.prep_dataframe(train_data, dekadal=dekadal)
         self.val_df = self.prep_dataframe(val_data, dekadal=dekadal)
         self.test_df = self.val_df.copy()
-
         self.target_name = target_name
         self.dekadal = dekadal
         self.task = task
         if task != "regression":
             self.num_outputs = len(self.train_df[target_name].unique())
-
         self.ds_class = ScaleAG10DDataset if dekadal else ScaleAGDataset
 
     @staticmethod
@@ -307,7 +305,7 @@ class ScaleAGYieldEval:
 
         dl = DataLoader(
             test_ds,
-            batch_size=2048,  # 4096, #8192,
+            batch_size=2048,
             shuffle=False,  # keep as False!
             num_workers=Hyperparams.num_workers,
         )
@@ -316,8 +314,6 @@ class ScaleAGYieldEval:
         test_preds_np, target_np = self._inference_for_dl(
             dl, finetuned_model, pretrained_model
         )
-        # print(f"target {target_np}")
-        # print(f"test preds {test_preds_np}")
         if self.task == "binary":
             test_preds_np = test_preds_np >= self.threshold
         elif self.task == "multiclass":
@@ -326,7 +322,6 @@ class ScaleAGYieldEval:
             target_np = [test_ds.index_to_class[int(t)] for t in target_np]
         # targets are normalized during training to avoid gradient explosion.
         # revert to original units
-
         elif self.task == "regression":
             target_np = test_ds.revert_to_original_units(target_np)
             test_preds_np = test_ds.revert_to_original_units(test_preds_np)
@@ -376,7 +371,6 @@ class ScaleAGYieldEval:
         optimizer = AdamW(parameters, lr=hyperparams.lr)
 
         train_ds = self.ds_class(self.train_df, self.target_name, self.task)
-
         val_ds = self.ds_class(self.val_df, self.target_name, self.task)
 
         if self.task == "regression":
@@ -498,6 +492,7 @@ class ScaleAGYieldEval:
 
         model.eval()
         return model
+        return model
 
     def finetuning_results_sklearn(
         self, sklearn_model_modes: List[str], finetuned_model: PrestoFineTuningModel
@@ -507,7 +502,6 @@ class ScaleAGYieldEval:
         if len(sklearn_model_modes) > 0:
 
             train_ds = self.ds_class(self.train_df, self.target_name, self.task)
-
             val_ds = self.ds_class(self.val_df, self.target_name, self.task)
 
             dl = DataLoader(
@@ -523,6 +517,7 @@ class ScaleAGYieldEval:
                 shuffle=False,
                 num_workers=4,
             )
+
             sklearn_models = self.finetune_sklearn_model(
                 dl,
                 val_dl,
@@ -532,7 +527,6 @@ class ScaleAGYieldEval:
             for sklearn_model in sklearn_models:
                 logger.info(f"Evaluating {sklearn_model}...")
                 results_dict.update(self.evaluate(sklearn_model, finetuned_model))
-
         return results_dict
 
     def finetuning_results(

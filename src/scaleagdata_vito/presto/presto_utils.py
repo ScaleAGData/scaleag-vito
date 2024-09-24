@@ -1,5 +1,5 @@
 import io
-from typing import Literal, Optional, Union, cast
+from typing import Literal, Optional, Tuple, Union, cast
 
 import catboost as cb
 import numpy as np
@@ -43,7 +43,7 @@ def load_pretrained_model(
         # so we run the command to construct the same FT model architecture to be able
         # to correctly load weights
         model = model.construct_finetuning_model(num_outputs=1)
-        logger.info(f" Initialize Presto dekadal architecture with dekadal PrestoFT...")
+        logger.info(" Initialize Presto dekadal architecture with dekadal PrestoFT...")
         best_model = torch.load(model_path, map_location=device)
         model.load_state_dict(best_model)
     else:
@@ -51,7 +51,7 @@ def load_pretrained_model(
         if model_path is not None:
             if ss_dekadal:
                 logger.info(
-                    f" Initialize Presto dekadal architecture with 10d ss trained WorldCereal Presto weights..."
+                    " Initialize Presto dekadal architecture with 10d ss trained WorldCereal Presto weights..."
                 )
                 # if model was self-supervised trained as decadal, first reinitialize positional
                 # embeddings then load weights
@@ -61,7 +61,7 @@ def load_pretrained_model(
                 model.load_state_dict(best_model)
             else:
                 logger.info(
-                    f" Initialize Presto dekadal architecture with 30d ss trained WorldCereal Presto weights..."
+                    " Initialize Presto dekadal architecture with 30d ss trained WorldCereal Presto weights..."
                 )
                 # if the model was self-supervised trained as monthly, first load weights then
                 # reinitialize positional embeddings
@@ -71,7 +71,7 @@ def load_pretrained_model(
                 model = reinitialize_pos_embedding(model, max_sequence_length=72)
         else:
             logger.info(
-                f" Initialize Presto dekadal architecture with pretrained Presto weights..."
+                " Initialize Presto dekadal architecture with pretrained Presto weights..."
             )
             model = Presto.load_pretrained()
             model = reinitialize_pos_embedding(model, max_sequence_length=72)
@@ -91,7 +91,7 @@ def load_pretrained_model_from_url(
         # so we run the command to construct the same FT model architecture to be able
         # to correctly load weights
         model = model.construct_finetuning_model(num_outputs=1)
-        logger.info(f" Initialize Presto dekadal architecture with dekadal PrestoFT...")
+        logger.info(" Initialize Presto dekadal architecture with dekadal PrestoFT...")
         response = requests.get(model_url)
         best_model = torch.load(io.BytesIO(response.content), map_location=device)
         model.load_state_dict(best_model, strict=strict)
@@ -99,7 +99,7 @@ def load_pretrained_model_from_url(
         if model_url != "":
             if ss_dekadal:
                 logger.info(
-                    f" Initialize Presto dekadal architecture with 10d ss trained WorldCereal Presto weights..."
+                    " Initialize Presto dekadal architecture with 10d ss trained WorldCereal Presto weights..."
                 )
                 # if model was self-supervised trained as decadal, first reinitialize positional
                 # embeddings then load weights
@@ -112,7 +112,7 @@ def load_pretrained_model_from_url(
                 model.load_state_dict(best_model, strict=strict)
             else:
                 logger.info(
-                    f" Initialize Presto dekadal architecture with 30d ss trained WorldCereal Presto weights..."
+                    " Initialize Presto dekadal architecture with 30d ss trained WorldCereal Presto weights..."
                 )
                 # if the model was self-supervised trained as monthly, first load weights then
                 # reinitialize positional embeddings
@@ -125,7 +125,7 @@ def load_pretrained_model_from_url(
                 model = reinitialize_pos_embedding(model, max_sequence_length=72)
         else:
             logger.info(
-                f" Initialize Presto dekadal architecture with pretrained Presto weights..."
+                " Initialize Presto dekadal architecture with pretrained Presto weights..."
             )
             model = Presto.load_pretrained()
             model = reinitialize_pos_embedding(model, max_sequence_length=72)
@@ -162,7 +162,7 @@ def get_encodings(
     dl: DataLoader,
     pretrained_presto: PrestoFineTuningModel,
     device: Literal["cpu", "cuda"] = "cpu",
-):
+) -> Tuple[np.ndarray, np.ndarray]:
     pretrained_presto.eval()
     batch_encodings, batch_targets = [], []
     for x, y, dw, latlons, month, variable_mask in dl:
@@ -185,11 +185,11 @@ def get_encodings(
                 .numpy()
             )
             batch_encodings.append(encodings)
-    batch_encodings = np.concatenate(batch_encodings)
-    batch_targets = np.concatenate(batch_targets)
-    if len(batch_targets.shape) == 2 and batch_targets.shape[1] == 1:
-        batch_targets = batch_targets.ravel()
-    return batch_encodings, batch_targets
+    batch_encodings_np = np.concatenate(batch_encodings)
+    batch_targets_np = np.concatenate(batch_targets)
+    if len(batch_targets_np.shape) == 2 and batch_targets_np.shape[1] == 1:
+        batch_targets_np = batch_targets_np.ravel()
+    return batch_encodings_np, batch_targets_np
 
 
 def predict_with_head(
@@ -261,10 +261,8 @@ def evaluate(
             preds = preds > 0.5
         # TBT on multiclass
         elif task == "multiclass":
-            test_preds_np = [
-                dl_val.dataset.index_to_class[int(t)] for t in test_preds_np
-            ]
-            target_np = [dl_val.dataset.index_to_class[int(t)] for t in target_np]
+            preds = [dl_val.dataset.index_to_class[int(t)] for t in preds]
+            targets = [dl_val.dataset.index_to_class[int(t)] for t in targets]
     else:
         encodings, targets = get_encodings(dl_val, pretrained_model)
         preds = ds_model.predict(encodings)
@@ -355,7 +353,7 @@ def train_catboost_on_encodings(
         )
     logger.info("Computing Presto encodings")
     encodings_np, targets = get_encodings(dl_train, presto_model, device="cpu")
-    logger.info(f"Fitting Catboost model on Presto encodings")
+    logger.info("Fitting Catboost model on Presto encodings")
     train_dataset = cb.Pool(encodings_np, targets)
     cbm.fit(train_dataset)
     return cbm

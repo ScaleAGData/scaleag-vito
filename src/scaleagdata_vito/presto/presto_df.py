@@ -1,5 +1,4 @@
 from datetime import datetime, timedelta
-from pathlib import Path
 
 import geopandas as gpd
 import numpy as np
@@ -10,6 +9,7 @@ from shapely.geometry import Point
 
 
 def to_float32(df):
+    return df.astype({c: np.float32 for c in df.columns if df[c].dtype == np.float64})
     return df.astype({c: np.float32 for c in df.columns if df[c].dtype == np.float64})
 
 
@@ -58,6 +58,7 @@ def xr_to_df(netcdf_file):
 
     # add static columns
     df["start_date"] = np.datetime_as_string(tps[0].data, unit="D")
+    df["start_date"] = np.datetime_as_string(tps[0].data, unit="D")
     df["end_date"] = np.datetime_as_string(tps[-1].data, unit="D")
     df["lat"] = netcdf["lat"].data
     df["lon"] = netcdf["lon"].data
@@ -75,12 +76,17 @@ def add_labels(df, labels_file):
     - gdf_labels (geopandas.GeoDataFrame): The GeoDataFrame containing the labels. this dataframe
     was used to collect datapoints from OpenEO so it contains the geometries which will be intersected with the
     df to add the labels.
+    - gdf_labels (geopandas.GeoDataFrame): The GeoDataFrame containing the labels. this dataframe
+    was used to collect datapoints from OpenEO so it contains the geometries which will be intersected with the
+    df to add the labels.
 
     Returns:
     - pandas.DataFrame: The DataFrame with labels added.
 
     """
     label_gdf = gpd.read_file(labels_file)
+    df["geometry"] = [Point(r.lon, r.lat) for r in df.itertuples()]
+    gdf = gpd.GeoDataFrame(df, geometry="geometry", crs="EPSG:4326")
     df["geometry"] = [Point(r.lon, r.lat) for r in df.itertuples()]
     gdf = gpd.GeoDataFrame(df, geometry="geometry", crs="EPSG:4326")
     df_labeled = gpd.sjoin(gdf, label_gdf, how="left", op="within")

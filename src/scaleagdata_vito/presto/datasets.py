@@ -123,7 +123,6 @@ class ScaleAgBase(Dataset):
     def normalize_and_mask(cls, eo: np.ndarray):
         # TODO: this can be removed
         keep_indices = [idx for idx, val in enumerate(BANDS) if val != "B9"]
-
         normed_eo = S1_S2_ERA5_SRTM.normalize(eo)  # this adds NDVI and normalizes
         # TODO: fix this. For now, we replicate the previous behaviour
         # only keeps the bands present in the data after normalization and sets to 0 the no_data locations

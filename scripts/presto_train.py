@@ -16,8 +16,9 @@ from presto.utils import (
     initialize_logging,
     seed_everything,
 )
-from scaleagdata.presto.presto_eval import ScaleAGYieldEval
-from scaleagdata.presto.presto_utils import reinitialize_pos_embedding
+
+from scaleagdata_vito.presto.presto_eval import ScaleAGYieldEval
+from scaleagdata_vito.presto.presto_utils import reinitialize_pos_embedding
 
 logger = logging.getLogger("__main__")
 
