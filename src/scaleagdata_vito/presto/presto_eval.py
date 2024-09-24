@@ -15,6 +15,7 @@ from presto.presto import (
     param_groups_lrd,
 )
 from presto.utils import DEFAULT_SEED, device
+from scaleagdata.datasets import ScaleAG10DDataset, ScaleAGDataset
 from sklearn.base import BaseEstimator, clone
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.linear_model import LinearRegression, LogisticRegression
@@ -31,8 +32,6 @@ from torch import nn
 from torch.optim import AdamW
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-
-from scaleagdata_vito.presto.datasets import ScaleAG10DDataset, ScaleAGDataset
 
 logger = logging.getLogger("__main__")
 
@@ -68,13 +67,11 @@ class ScaleAGYieldEval:
         self.train_df = self.prep_dataframe(train_data, dekadal=dekadal)
         self.val_df = self.prep_dataframe(val_data, dekadal=dekadal)
         self.test_df = self.val_df.copy()
-
         self.target_name = target_name
         self.dekadal = dekadal
         self.task = task
         if task != "regression":
             self.num_outputs = len(self.train_df[target_name].unique())
-
         self.ds_class = ScaleAG10DDataset if dekadal else ScaleAGDataset
 
     @staticmethod
@@ -101,7 +98,7 @@ class ScaleAGYieldEval:
             # then we need to adjust a bit the initialization as the construct_finetuning_model
             # expects a Presto architecture but here we already have a PrestoFineTuningModel
             model = cast(Callable, self.construct_from_finetuned)(
-                pretrained_model.encoder
+                encoder=pretrained_model.encoder
             )
         else:
             model = cast(Callable, pretrained_model.construct_finetuning_model)(
@@ -308,7 +305,7 @@ class ScaleAGYieldEval:
 
         dl = DataLoader(
             test_ds,
-            batch_size=2048,  # 4096, #8192,
+            batch_size=2048,
             shuffle=False,  # keep as False!
             num_workers=Hyperparams.num_workers,
         )
@@ -317,8 +314,6 @@ class ScaleAGYieldEval:
         test_preds_np, target_np = self._inference_for_dl(
             dl, finetuned_model, pretrained_model
         )
-        # print(f"target {target_np}")
-        # print(f"test preds {test_preds_np}")
         if self.task == "binary":
             test_preds_np = test_preds_np >= self.threshold
         elif self.task == "multiclass":
@@ -327,7 +322,6 @@ class ScaleAGYieldEval:
             target_np = [test_ds.index_to_class[int(t)] for t in target_np]
         # targets are normalized during training to avoid gradient explosion.
         # revert to original units
-
         elif self.task == "regression":
             target_np = test_ds.revert_to_original_units(target_np)
             test_preds_np = test_ds.revert_to_original_units(test_preds_np)
@@ -377,7 +371,6 @@ class ScaleAGYieldEval:
         optimizer = AdamW(parameters, lr=hyperparams.lr)
 
         train_ds = self.ds_class(self.train_df, self.target_name, self.task)
-
         val_ds = self.ds_class(self.val_df, self.target_name, self.task)
 
         if self.task == "regression":
@@ -499,14 +492,15 @@ class ScaleAGYieldEval:
 
         model.eval()
         return model
+        return model
 
     def finetuning_results_sklearn(
         self, sklearn_model_modes: List[str], finetuned_model: PrestoFineTuningModel
     ) -> Dict:
 
         results_dict = {}
-
         if len(sklearn_model_modes) > 0:
+
             train_ds = self.ds_class(self.train_df, self.target_name, self.task)
             val_ds = self.ds_class(self.val_df, self.target_name, self.task)
 

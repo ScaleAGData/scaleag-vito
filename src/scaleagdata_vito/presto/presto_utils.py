@@ -1,14 +1,22 @@
 import io
-from typing import Literal, cast
+from typing import Literal, Optional, Tuple, Union, cast
 
+import catboost as cb
 import numpy as np
+import pandas as pd
 import requests
 import torch
 from loguru import logger
-from presto.presto import Presto, get_sinusoid_encoding_table
-from presto.utils import device
-from sklearn.metrics import explained_variance_score, mean_squared_error, r2_score
+from presto.presto import Presto, PrestoFineTuningModel, get_sinusoid_encoding_table
+from sklearn.metrics import (
+    classification_report,
+    explained_variance_score,
+    mean_absolute_percentage_error,
+    mean_squared_error,
+    r2_score,
+)
 from torch import nn
+from torch.utils.data import DataLoader
 
 default_model_kwargs = {
     "encoder_embedding_size": 128,
@@ -23,8 +31,56 @@ default_model_kwargs = {
 }
 
 
+def load_pretrained_model(
+    model_path=None, finetuned=False, ss_dekadal=False, device="cpu"
+):
+    if finetuned:
+        # initialize architecture without loading pretrained model
+        model = Presto.construct(**default_model_kwargs)
+        # extend model architecture to dekadal
+        model = reinitialize_pos_embedding(model, max_sequence_length=72)
+        # if we try to load a PrestoFT model, the architecture will be encoder + head
+        # so we run the command to construct the same FT model architecture to be able
+        # to correctly load weights
+        model = model.construct_finetuning_model(num_outputs=1)
+        logger.info(" Initialize Presto dekadal architecture with dekadal PrestoFT...")
+        best_model = torch.load(model_path, map_location=device)
+        model.load_state_dict(best_model)
+    else:
+        # load pretrained default Presto
+        if model_path is not None:
+            if ss_dekadal:
+                logger.info(
+                    " Initialize Presto dekadal architecture with 10d ss trained WorldCereal Presto weights..."
+                )
+                # if model was self-supervised trained as decadal, first reinitialize positional
+                # embeddings then load weights
+                model = Presto.construct(**default_model_kwargs)
+                model = reinitialize_pos_embedding(model, max_sequence_length=72)
+                best_model = torch.load(model_path, map_location=device)
+                model.load_state_dict(best_model)
+            else:
+                logger.info(
+                    " Initialize Presto dekadal architecture with 30d ss trained WorldCereal Presto weights..."
+                )
+                # if the model was self-supervised trained as monthly, first load weights then
+                # reinitialize positional embeddings
+                model = Presto.construct(**default_model_kwargs)
+                best_model = torch.load(model_path, map_location=device)
+                model.load_state_dict(best_model)
+                model = reinitialize_pos_embedding(model, max_sequence_length=72)
+        else:
+            logger.info(
+                " Initialize Presto dekadal architecture with pretrained Presto weights..."
+            )
+            model = Presto.load_pretrained()
+            model = reinitialize_pos_embedding(model, max_sequence_length=72)
+    model.to(device)
+    return model
+
+
 def load_pretrained_model_from_url(
-    model_url, finetuned=False, ss_dekadal=False, strict=False
+    model_url, finetuned=False, ss_dekadal=False, strict=False, device="cpu"
 ):
     if finetuned:
         # initialize architecture without loading pretrained model
@@ -40,8 +96,6 @@ def load_pretrained_model_from_url(
         best_model = torch.load(io.BytesIO(response.content), map_location=device)
         model.load_state_dict(best_model, strict=strict)
     else:
-        # load pretrained default Presto
-        model = Presto.construct(**default_model_kwargs)
         if model_url != "":
             if ss_dekadal:
                 logger.info(
@@ -49,6 +103,7 @@ def load_pretrained_model_from_url(
                 )
                 # if model was self-supervised trained as decadal, first reinitialize positional
                 # embeddings then load weights
+                model = Presto.construct(**default_model_kwargs)
                 model = reinitialize_pos_embedding(model, max_sequence_length=72)
                 response = requests.get(model_url)
                 best_model = torch.load(
@@ -61,22 +116,25 @@ def load_pretrained_model_from_url(
                 )
                 # if the model was self-supervised trained as monthly, first load weights then
                 # reinitialize positional embeddings
+                model = Presto.construct(**default_model_kwargs)
                 response = requests.get(model_url)
                 best_model = torch.load(
                     io.BytesIO(response.content), map_location=device
                 )
+                model.load_state_dict(best_model, strict=strict)
                 model = reinitialize_pos_embedding(model, max_sequence_length=72)
         else:
             logger.info(
                 " Initialize Presto dekadal architecture with pretrained Presto weights..."
             )
+            model = Presto.load_pretrained()
             model = reinitialize_pos_embedding(model, max_sequence_length=72)
     model.to(device)
     return model
 
 
 def reinitialize_pos_embedding(
-    model, max_sequence_length: int
+    model: Union[Presto, PrestoFineTuningModel], max_sequence_length: int
 ):  # PrestoFineTuningModel
     # reinitialize encoder pos embed to stretch max length of time series
     model.encoder.pos_embed = nn.Parameter(
@@ -100,7 +158,11 @@ def reinitialize_pos_embedding(
     return model
 
 
-def get_encodings(dl, pretrained_presto):
+def get_encodings(
+    dl: DataLoader,
+    pretrained_presto: PrestoFineTuningModel,
+    device: Literal["cpu", "cuda"] = "cpu",
+) -> Tuple[np.ndarray, np.ndarray]:
     pretrained_presto.eval()
     batch_encodings, batch_targets = [], []
     for x, y, dw, latlons, month, variable_mask in dl:
@@ -123,14 +185,19 @@ def get_encodings(dl, pretrained_presto):
                 .numpy()
             )
             batch_encodings.append(encodings)
-    batch_encodings = np.concatenate(batch_encodings)
-    batch_targets = np.concatenate(batch_targets)
-    if len(batch_targets.shape) == 2 and batch_targets.shape[1] == 1:
-        batch_targets = batch_targets.ravel()
-    return batch_encodings, batch_targets
+    batch_encodings_np = np.concatenate(batch_encodings)
+    batch_targets_np = np.concatenate(batch_targets)
+    if len(batch_targets_np.shape) == 2 and batch_targets_np.shape[1] == 1:
+        batch_targets_np = batch_targets_np.ravel()
+    return batch_encodings_np, batch_targets_np
 
 
-def predict_with_head(dl, finetuned_model):
+def predict_with_head(
+    dl: DataLoader,
+    finetuned_model: PrestoFineTuningModel,
+    task: Literal["regression", "binary", "multiclass"] = "regression",
+    device: Literal["cpu", "cuda"] = "cpu",
+):
     test_preds, targets = [], []
     for x, y, dw, latlons, month, variable_mask in dl:
         targets.append(y)
@@ -139,19 +206,21 @@ def predict_with_head(dl, finetuned_model):
         ]
         finetuned_model.eval()
         with torch.no_grad():
-            preds = (
-                finetuned_model(
-                    x_f,
-                    dynamic_world=dw_f.long(),
-                    mask=variable_mask_f,
-                    latlons=latlons_f,
-                    month=month_f,
-                )
-                .squeeze(dim=1)
-                .cpu()
-                .numpy()
-            )
-            test_preds.append(preds)
+            preds = finetuned_model(
+                x_f,
+                dynamic_world=dw_f.long(),
+                mask=variable_mask_f,
+                latlons=latlons_f,
+                month=month_f,
+            ).squeeze(dim=1)
+            # binary classification
+            if task == "binary":
+                preds = torch.sigmoid(preds)
+            # multiclass classification
+            elif task == "multiclass":
+                preds = nn.functional.softmax(preds)
+                preds = np.argmax(preds, axis=-1)
+            test_preds.append(preds.cpu().numpy())
     test_preds_np = np.concatenate(test_preds)
     target_np = np.concatenate(targets)
     return test_preds_np, target_np
@@ -161,13 +230,17 @@ def revert_to_original_units(y_norm, upper_bound, lower_bound):
     return y_norm * (upper_bound - lower_bound) + lower_bound
 
 
+def normalize_target(y, upper_bound, lower_bound):
+    return (y - lower_bound) / (upper_bound - lower_bound)
+
+
 def evaluate(
-    pretrained_model,
-    ds_model,
-    dl_val,
-    up_val,
-    low_val,
-    task: Literal["regression", "binary", "multiclass"],
+    pretrained_model: PrestoFineTuningModel,
+    dl_val: DataLoader,
+    ds_model: Union[cb.CatBoostRegressor, cb.CatBoostClassifier, None] = None,
+    task: Literal["regression", "binary", "multiclass"] = "regression",
+    up_val: Optional[Union[int, float]] = None,
+    low_val: Optional[Union[int, float]] = None,
 ):
     """
     Evaluate the performance of a deep learning model on a validation dataset.
@@ -182,18 +255,105 @@ def evaluate(
     - metrics: The performance metrics on validation dataset.
 
     """
-    encodings, targets = get_encodings(dl_val, pretrained_model)
-    targets = revert_to_original_units(targets, up_val, low_val)
-    preds = ds_model.predict(encodings)
-    preds = revert_to_original_units(preds, up_val, low_val)
+    if ds_model is None:
+        preds, targets = predict_with_head(dl_val, pretrained_model)
+        if task == "binary":
+            preds = preds > 0.5
+        # TBT on multiclass
+        elif task == "multiclass":
+            preds = [dl_val.dataset.index_to_class[int(t)] for t in preds]
+            targets = [dl_val.dataset.index_to_class[int(t)] for t in targets]
+    else:
+        encodings, targets = get_encodings(dl_val, pretrained_model)
+        preds = ds_model.predict(encodings)
+    if up_val is not None and low_val is not None:
+        targets = revert_to_original_units(targets, up_val, low_val)
+        preds = revert_to_original_units(preds, up_val, low_val)
     if task == "regression":
         metrics = {
             "RMSE": float(np.sqrt(mean_squared_error(targets, preds))),
             "R2_score": float(r2_score(targets, preds)),
             "explained_var_score": float(explained_variance_score(targets, preds)),
+            "MAPE": float(mean_absolute_percentage_error(targets, preds)),
         }
     elif task == "binary":
-        pass
+        metrics = classification_report(targets, preds, output_dict=True)
     elif task == "multiclass":
-        pass
+        metrics = classification_report(targets, preds, output_dict=True)
     return metrics, preds, targets
+
+
+def get_feature_list(num_time_steps=36):
+    feature_list = ["DEM-alt-20m", "DEM-slo-20m", "lat", "lon"]
+    for i in range(num_time_steps):
+        feature_list += [
+            f"OPTICAL-B02-ts{i}-10m",
+            f"OPTICAL-B03-ts{i}-10m",
+            f"OPTICAL-B04-ts{i}-10m",
+            f"OPTICAL-B05-ts{i}-20m",
+            f"OPTICAL-B06-ts{i}-20m",
+            f"OPTICAL-B07-ts{i}-20m",
+            f"OPTICAL-B08-ts{i}-10m",
+            f"OPTICAL-B8A-ts{i}-20m",
+            f"OPTICAL-B11-ts{i}-20m",
+            f"OPTICAL-B12-ts{i}-20m",
+            f"SAR-VH-ts{i}-20m",
+            f"SAR-VV-ts{i}-20m",
+            f"METEO-precipitation_flux-ts{i}-100m",
+            f"METEO-temperature_mean-ts{i}-100m",
+        ]
+    return feature_list
+
+
+def evaluate_catboost(
+    ds_model: Union[cb.CatBoostRegressor, cb.CatBoostClassifier],
+    val_x: Union[np.ndarray, pd.DataFrame],
+    val_y: Union[np.ndarray, pd.Series],
+    task: Literal["regression", "binary", "multiclass"],
+    up_val: Optional[Union[int, float]] = None,
+    low_val: Optional[Union[int, float]] = None,
+):
+    preds = ds_model.predict(val_x)
+    if up_val is not None and low_val is not None:
+        val_y = revert_to_original_units(val_y, up_val, low_val)
+        preds = revert_to_original_units(preds, up_val, low_val)
+    if task == "regression":
+        metrics = {
+            "RMSE": float(np.sqrt(mean_squared_error(val_y, preds))),
+            "R2_score": float(r2_score(val_y, preds)),
+            "explained_var_score": float(explained_variance_score(val_y, preds)),
+            "MAPE": float(mean_absolute_percentage_error(val_y, preds)),
+        }
+    elif task == "binary":
+        metrics = classification_report(val_y, preds, output_dict=True)
+    elif task == "multiclass":
+        metrics = classification_report(val_y, preds, output_dict=True)
+    return metrics, preds, val_y
+
+
+def train_catboost_on_encodings(
+    dl_train: DataLoader,
+    presto_model: PrestoFineTuningModel,
+    task: Literal["regression", "binary", "multiclass"],
+    cb_device: Literal["GPU", None] = None,
+):
+
+    if task == "regression":
+        cbm = cb.CatBoostRegressor(
+            random_state=3,
+            task_type=cb_device,
+            logging_level="Silent",
+            loss_function="RMSE",
+        )
+    else:
+        cbm = cb.CatBoostClassifier(
+            random_state=3,
+            task_type=cb_device,
+            logging_level="Silent",
+        )
+    logger.info("Computing Presto encodings")
+    encodings_np, targets = get_encodings(dl_train, presto_model, device="cpu")
+    logger.info("Fitting Catboost model on Presto encodings")
+    train_dataset = cb.Pool(encodings_np, targets)
+    cbm.fit(train_dataset)
+    return cbm

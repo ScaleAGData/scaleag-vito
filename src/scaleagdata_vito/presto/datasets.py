@@ -46,7 +46,7 @@ class ScaleAgBase(Dataset):
         target_name: str,
         task: Literal["regression", "binary", "multiclass"],
     ):
-        self.df = dataframe
+        self.df = dataframe.replace({np.nan: self._NODATAVALUE})
         self.target_name = target_name
         self.task = task
 
@@ -123,7 +123,6 @@ class ScaleAgBase(Dataset):
     def normalize_and_mask(cls, eo: np.ndarray):
         # TODO: this can be removed
         keep_indices = [idx for idx, val in enumerate(BANDS) if val != "B9"]
-
         normed_eo = S1_S2_ERA5_SRTM.normalize(eo)  # this adds NDVI and normalizes
         # TODO: fix this. For now, we replicate the previous behaviour
         # only keeps the bands present in the data after normalization and sets to 0 the no_data locations
@@ -180,14 +179,12 @@ class ScaleAGDataset(ScaleAgBase):
 
     def normalize_target(self, target):
         return (target - self.LOWER_BOUND) / (self.UPPER_BOUND - self.LOWER_BOUND)
-        # return self.z_scaling(target)
 
     def z_scaling(self, x):
         return (x - self.mean) / self.std
 
     def revert_to_original_units(self, target_norm):
         return target_norm * (self.UPPER_BOUND - self.LOWER_BOUND) + self.LOWER_BOUND
-        # return (target_norm * self.std) + self.mean
 
 
 class ScaleAG10DDataset(ScaleAGDataset):
@@ -197,7 +194,7 @@ class ScaleAG10DDataset(ScaleAGDataset):
     def __getitem__(self, idx):
         # Get the sample
         row = self.df.iloc[idx, :]
-        eo, mask_per_token, latlon, month, target = self.row_to_arrays(
+        eo, mask_per_token, latlon, _, target = self.row_to_arrays(
             row, self.target_name
         )
         mask_per_variable = np.repeat(mask_per_token, BAND_EXPANSION, axis=1)
