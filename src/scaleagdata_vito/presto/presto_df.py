@@ -87,8 +87,6 @@ def add_labels(df, labels_file):
     label_gdf = gpd.read_file(labels_file)
     df["geometry"] = [Point(r.lon, r.lat) for r in df.itertuples()]
     gdf = gpd.GeoDataFrame(df, geometry="geometry", crs="EPSG:4326")
-    df["geometry"] = [Point(r.lon, r.lat) for r in df.itertuples()]
-    gdf = gpd.GeoDataFrame(df, geometry="geometry", crs="EPSG:4326")
     df_labeled = gpd.sjoin(gdf, label_gdf, how="left", op="within")
     df_labeled = df_labeled.drop(columns=["geometry", "index_right"])
     df_labeled = df_labeled.drop_duplicates()
