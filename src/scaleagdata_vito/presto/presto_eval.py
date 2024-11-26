@@ -490,9 +490,8 @@ class ScaleAGEval:
                 x, y, dw, latlons, month, variable_mask = [
                     t.to(device) for t in (x, y, dw, latlons, month, variable_mask)
                 ]
-
                 input_dict = dict(
-                    x,
+                    x=x,
                     dynamic_world=dw.long(),
                     mask=variable_mask,
                     latlons=latlons,
@@ -519,7 +518,7 @@ class ScaleAGEval:
                     t.to(device) for t in (x, y, dw, latlons, month, variable_mask)
                 ]
                 input_dict = dict(
-                    x,
+                    x=x,
                     dynamic_world=dw.long(),
                     mask=variable_mask,
                     latlons=latlons,
