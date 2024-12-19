@@ -43,7 +43,7 @@ class Hyperparams:
     max_epochs: int = 100
     batch_size: int = 256
     patience: int = 20
-    num_workers: int = 4
+    num_workers: int = 8
     catboost_iterations: int = 8000
 
 

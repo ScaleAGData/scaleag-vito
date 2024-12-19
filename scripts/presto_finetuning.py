@@ -3,7 +3,7 @@ import json
 import logging
 import pickle
 from pathlib import Path
-from typing import cast
+from typing import Optional, cast
 
 import pandas as pd
 import torch
@@ -54,9 +54,9 @@ argparser.add_argument("--ss_dekadal", dest="ss_dekadal", action="store_true")
 argparser.add_argument("--finetuned", dest="finetuned", action="store_true")
 argparser.add_argument("--data_dir", type=str, default="")
 argparser.add_argument(
-    "--model_path",
+    "--path_to_weigths",
     type=str,
-    default=None,  # "/home/vito/millig/gio/models/presto_ss/monthly/output/2024_05_14_18_07_41_787101_szn0tnsi/models/28.pt",
+    default="",  # "/home/vito/millig/gio/models/presto_ss/monthly/output/2024_05_14_18_07_41_787101_szn0tnsi/models/28.pt",
 )  # WC ss 30d Presto
 argparser.add_argument("--target_name", type=str, default="median_yield")
 argparser.add_argument("--task", type=str, default="regression")
@@ -84,8 +84,10 @@ output_parent_dir = (
 )
 output_parent_dir.mkdir(parents=True, exist_ok=True)
 
-if args["model_path"] is not None:
-    model_path = Path(args["model_path"])
+path_to_weigths: Optional[Path] = None
+
+if args["path_to_weigths"] is not None:
+    path_to_weigths = Path(args["path_to_weigths"])
 
 if args["data_dir"]:
     data_dir = Path(args["data_dir"])
@@ -122,7 +124,7 @@ logger.info("Setting up model")
 model_kwargs = json.load(Path(config_dir / "default.json").open("r"))
 
 model = load_pretrained_model(
-    model_path=model_path,
+    path_to_weigths=path_to_weigths,
     dekadal=dekadal,
     finetuned=finetuned,
     ss_dekadal=ss_dekadal,

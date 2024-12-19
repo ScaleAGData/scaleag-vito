@@ -108,12 +108,12 @@ class ScaleAgBase(Dataset):
                 values[idx_valid] = values[idx_valid] / 100
             mask[:, IDX_TO_BAND_GROUPS[presto_val]] += ~idx_valid
             # add values to eo at specifix index. the order followed is the one suggested by BANDS
-            eo_data[:, BANDS.index(presto_val)] = values
+            eo_data[:, BANDS.index(presto_val)] = values * idx_valid
         for df_val, presto_val in self.STATIC_BAND_MAPPING.items():
             # this occurs for the DEM values in one point in Fiji
             values = np.nan_to_num(row_d[df_val], nan=self._NODATAVALUE)
             idx_valid = values != self._NODATAVALUE
-            eo_data[:, BANDS.index(presto_val)] = values
+            eo_data[:, BANDS.index(presto_val)] = values * idx_valid
             mask[:, IDX_TO_BAND_GROUPS[presto_val]] += ~idx_valid
 
         # check if the visual bands mask is True

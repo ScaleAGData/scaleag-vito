@@ -32,7 +32,7 @@ default_model_kwargs = {
 
 
 def load_pretrained_model(
-    model_path=None,
+    path_to_weigths=None,
     dekadal=True,
     finetuned=False,
     ss_dekadal=False,
@@ -51,11 +51,11 @@ def load_pretrained_model(
         # to correctly load weights
         model = model.construct_finetuning_model(num_outputs=num_outputs)
         logger.info(f"Initialize Presto {architecture} architecture with PrestoFT...")
-        best_model = torch.load(model_path, map_location=device)
+        best_model = torch.load(path_to_weigths, map_location=device)
         model.load_state_dict(best_model)
     else:
         # load pretrained default Presto
-        if model_path is not None:
+        if path_to_weigths is not None:
             if ss_dekadal:
                 logger.info(
                     f"Initialize Presto {architecture} architecture with 10d ss trained WorldCereal Presto weights..."
@@ -65,7 +65,7 @@ def load_pretrained_model(
                 model = Presto.construct(**default_model_kwargs)
                 if dekadal:
                     model = reinitialize_pos_embedding(model, max_sequence_length=72)
-                best_model = torch.load(model_path, map_location=device)
+                best_model = torch.load(path_to_weigths, map_location=device)
                 model.load_state_dict(best_model)
             else:
                 logger.info(
@@ -74,7 +74,7 @@ def load_pretrained_model(
                 # if the model was self-supervised trained as monthly, first load weights then
                 # reinitialize positional embeddings if dekadal
                 model = Presto.construct(**default_model_kwargs)
-                best_model = torch.load(model_path, map_location=device)
+                best_model = torch.load(path_to_weigths, map_location=device)
                 model.load_state_dict(best_model)
                 if dekadal:
                     model = reinitialize_pos_embedding(model, max_sequence_length=72)
