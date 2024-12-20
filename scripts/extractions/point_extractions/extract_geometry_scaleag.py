@@ -9,16 +9,17 @@ import openeo
 import pandas as pd
 import pystac
 from openeo_gfmap import Backend, BackendContext, FetchType, TemporalContext
-from scaleag_vito.openeo.extract import get_job_nb_polygons, pipeline_log
-from scaleag_vito.openeo.preprocessing import scaleag_preprocessed_inputs
 from tqdm import tqdm
 
+from scaleagdata_vito.openeo.extract import get_job_nb_polygons, pipeline_log
+from scaleagdata_vito.openeo.preprocessing import scaleag_preprocessed_inputs
 
-def generate_output_path_point_scaleag(
+
+def generate_output_path_geometry_scaleag(
     root_folder: Path, geometry_index: int, row: pd.Series
 ):
     """
-    For point extractions, only one asset (a geoparquet file) is generated per job.
+    For geometry extractions, only one asset (a geoparquet file) is generated per job.
     Therefore geometry_index is always 0.
     It has to be included in the function signature to be compatible with the GFMapJobManager.
     """
@@ -38,34 +39,19 @@ def generate_output_path_point_scaleag(
             i += 1
         real_subfolder = subfolder / str(i)
 
-    return real_subfolder / f"point_extractions{row.out_extension}"
+    return real_subfolder / f"geometry_extractions{row.out_extension}"
 
 
-def create_job_dataframe_point_scaleag(
-    backend: Backend, split_jobs: List[gpd.GeoDataFrame]
+def create_job_dataframe_geometry_scaleag(
+    backend: Backend, split_jobs: List[gpd.GeoDataFrame], start_date: str, end_date: str
 ) -> pd.DataFrame:
     """Create a dataframe from the split jobs, containg all the necessary information to run the job."""
     rows = []
     for job in tqdm(split_jobs):
-        min_time = job.valid_time.min()
-        max_time = job.valid_time.max()
-        # 9 months before and after the valid time
-        start_date = (min_time - pd.Timedelta(days=275)).to_pydatetime()
-        end_date = (max_time + pd.Timedelta(days=275)).to_pydatetime()
-
         s2_tile = job.tile.iloc[0]
-
-        # Convert dates to string format
-        start_date, end_date = start_date.strftime("%Y-%m-%d"), end_date.strftime(
-            "%Y-%m-%d"
-        )
-
-        # Set back the valid_time in the geometry as string
-        job["valid_time"] = job.valid_time.dt.strftime("%Y-%m-%d")
-
         variables = {
             "backend_name": backend.value,
-            "out_prefix": "point-extraction",
+            "out_prefix": "geometry-extraction",
             "out_extension": ".geoparquet",
             "start_date": start_date,
             "end_date": end_date,
@@ -78,7 +64,7 @@ def create_job_dataframe_point_scaleag(
     return pd.DataFrame(rows)
 
 
-def create_job_point_scaleag(
+def create_job_geometry_scaleag(
     row: pd.Series,
     connection: openeo.DataCube,
     provider,
@@ -130,12 +116,12 @@ def create_job_point_scaleag(
 
     return cube.create_job(
         out_format="Parquet",
-        title=f"ScaleAgData_Point_Extraction_{row.s2_tile}",
+        title=f"ScaleAgData_Geometry_Extraction_{row.s2_tile}",
         job_options=job_options,
     )
 
 
-def post_job_action_point_scaleag(
+def post_job_action_geometry_scaleag(
     job_items: List[pystac.Item], row: pd.Series, parameters: Optional[dict] = None
 ) -> list:
     for idx, item in enumerate(job_items):
