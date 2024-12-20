@@ -16,7 +16,7 @@ from scaleagdata_vito.openeo.preprocessing import scaleag_preprocessed_inputs
 
 
 def generate_output_path_geometry_scaleag(
-    root_folder: Path, geometry_index: int, row: pd.Series
+    root_folder: Path, geometry_index: int, row: pd.Series, asset_id: str
 ):
     """
     For geometry extractions, only one asset (a geoparquet file) is generated per job.
