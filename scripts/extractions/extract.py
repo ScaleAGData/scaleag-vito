@@ -16,19 +16,20 @@ from openeo_gfmap import Backend
 from openeo_gfmap.backend import cdse_connection
 from openeo_gfmap.manager.job_manager import GFMAPJobManager
 from openeo_gfmap.manager.job_splitters import split_job_s2grid
-from point_extractions.extract_point_scaleag import (
-    create_job_dataframe_point_scaleag,
-    create_job_point_scaleag,
-    generate_output_path_point_scaleag,
-    post_job_action_point_scaleag,
+from point_extractions.extract_geometry_scaleag import (
+    create_job_dataframe_geometry_scaleag,
+    create_job_geometry_scaleag,
+    generate_output_path_geometry_scaleag,
+    post_job_action_geometry_scaleag,
 )
-from scaleag_vito.openeo.extract import pipeline_log
+
+from scaleagdata_vito.openeo.extract import pipeline_log
 
 
 class ExtractionCollection(Enum):
     """Collections that can be extracted in the extraction scripts."""
 
-    POINT_SCALEAG = "POINT_SCALEAG"
+    GEOMETRY_SCALEAG = "GEOMETRY_SCALEAG"
 
 
 def load_dataframe(df_path: Path) -> gpd.GeoDataFrame:
@@ -46,6 +47,8 @@ def prepare_job_dataframe(
     collection: ExtractionCollection,
     max_locations: int,
     backend: Backend,
+    start_date: str,
+    end_date: str,
 ) -> gpd.GeoDataFrame:
     """Prepare the job dataframe to extract the data from the given input
     dataframe."""
@@ -55,7 +58,7 @@ def prepare_job_dataframe(
 
     pipeline_log.info("Dataframes split to jobs, creating the job dataframe...")
     collection_switch: dict[ExtractionCollection, typing.Callable] = {
-        ExtractionCollection.POINT_SCALEAG: create_job_dataframe_point_scaleag,
+        ExtractionCollection.GEOMETRY_SCALEAG: create_job_dataframe_geometry_scaleag,
     }
 
     create_job_dataframe_fn = collection_switch.get(
@@ -65,7 +68,7 @@ def prepare_job_dataframe(
         ),
     )
 
-    job_df = create_job_dataframe_fn(backend, split_dfs)
+    job_df = create_job_dataframe_fn(backend, split_dfs, start_date, end_date)
     pipeline_log.info("Job dataframe created with %s jobs.", len(job_df))
 
     return job_df
@@ -85,8 +88,8 @@ def setup_extraction_functions(
     """
 
     datacube_creation = {
-        ExtractionCollection.POINT_SCALEAG: partial(
-            create_job_point_scaleag,
+        ExtractionCollection.GEOMETRY_SCALEAG: partial(
+            create_job_geometry_scaleag,
             executor_memory=memory,
             python_memory=python_memory,
             max_executors=max_executors,
@@ -101,7 +104,9 @@ def setup_extraction_functions(
     )
 
     path_fns = {
-        ExtractionCollection.POINT_SCALEAG: partial(generate_output_path_point_scaleag),
+        ExtractionCollection.GEOMETRY_SCALEAG: partial(
+            generate_output_path_geometry_scaleag
+        ),
     }
 
     path_fn = path_fns.get(
@@ -112,8 +117,8 @@ def setup_extraction_functions(
     )
 
     post_job_actions = {
-        ExtractionCollection.POINT_SCALEAG: partial(
-            post_job_action_point_scaleag,
+        ExtractionCollection.GEOMETRY_SCALEAG: partial(
+            post_job_action_geometry_scaleag,
         ),
     }
 
@@ -191,6 +196,14 @@ if __name__ == "__main__":
         "input_df", type=Path, help="The input dataframe with the data to extract"
     )
     parser.add_argument(
+        "--start_date",
+        type=str,
+    )
+    parser.add_argument(
+        "--end_date",
+        type=str,
+    )
+    parser.add_argument(
         "--max_locations",
         type=int,
         default=500,
@@ -225,13 +238,35 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
+    ### DEBUGGING
+    # args = pd.Series(
+    #     {
+    #         "collection": ExtractionCollection.GEOMETRY_SCALEAG,
+    #         "output_folder": Path(
+    #             "/home/vito/millig/gio/data/scaleag_extractions/test"
+    #         ),
+    #         "input_df": Path(
+    #             "/home/vito/millig/gio/data/scaleag_extractions/test/AVR_fields_10000_100000_subfields_yield_bel_nl_roads_removed_nodate.geojson"
+    #         ),
+    #         "start_date": "2022-01-01",
+    #         "end_date": "2022-12-31",
+    #         "max_locations": 50,
+    #         "memory": "1800m",
+    #         "python_memory": "1900m",
+    #         "max_executors": 22,
+    #         "parallel_jobs": 10,
+    #         "restart_failed": False,
+    #     }
+    # )
+
     # Fetches values and setups hardocded values
     collection = args.collection
     max_locations_per_job = args.max_locations
     backend = Backend.CDSE
 
     if not args.output_folder.is_dir():
-        raise ValueError(f"Output folder {args.output_folder} does not exist.")
+        args.output_folder.mkdir(parents=True, exist_ok=True)
+        # raise ValueError(f"Output folder {args.output_folder} does not exist.")
 
     tracking_df_path = Path(args.output_folder) / "job_tracking.csv"
 
@@ -241,7 +276,12 @@ if __name__ == "__main__":
     job_df = None
     if not tracking_df_path.exists():
         job_df = prepare_job_dataframe(
-            input_df, collection, max_locations_per_job, backend
+            input_df,
+            collection,
+            max_locations_per_job,
+            backend,
+            args.start_date,
+            args.end_date,
         )
 
     # Setup the extraction functions
