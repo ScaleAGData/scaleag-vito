@@ -237,7 +237,7 @@ if __name__ == "__main__":
         help="Restart the jobs that previously failed.",
     )
     parser.add_argument(
-        "--unique_column_id",
+        "--unique_id_column",
         type=str,
         default="id",
         help="The column contianing the unique sample IDs",
@@ -262,7 +262,7 @@ if __name__ == "__main__":
     #         "max_executors": 22,
     #         "parallel_jobs": 10,
     #         "restart_failed": False,
-    #         "unique_column_id": "fieldname",
+    #         "unique_id_column": "fieldname",
     #     }
     # )
 
@@ -298,7 +298,7 @@ if __name__ == "__main__":
         args.memory,
         args.python_memory,
         args.max_executors,
-        args.unique_column_id,
+        args.unique_id_column,
     )
 
     # Initialize and setups the job manager
