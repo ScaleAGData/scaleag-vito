@@ -142,7 +142,6 @@ def create_job_geometry_scaleag(
 def post_job_action_geometry_scaleag(
     job_items: List[pystac.Item],
     row: pd.Series,
-    unique_id_column: str,
     parameters: Optional[dict] = None,
 ) -> list:
     for idx, item in enumerate(job_items):
@@ -155,15 +154,10 @@ def post_job_action_geometry_scaleag(
         gdf["lat"] = gdf.geometry.centroid.y
         gdf["lon"] = gdf.geometry.centroid.x
 
-        # Rename the column containing unique ids according to convention
-        gdf = gdf.rename(columns={unique_id_column: "sample_id"})
-
         # # For each sample, add start and end date to the dataframe
         # # is there a better way to do this, as this is already done in the job creation?
         sample_ids = gdf["sample_id"].unique()
-        assert len(sample_ids) == len(
-            gdf.loc[:, ["sample_id", "date"]].drop_duplicates()["sample_id"].unique()
-        ), "sample IDs are not unique!"
+
         for sample_id in sample_ids:
             sample = gdf[gdf["sample_id"] == sample_id]
             start_date = pd.to_datetime(sample["date"].min()).replace(day=1)

@@ -79,7 +79,6 @@ def setup_extraction_functions(
     memory: str,
     python_memory: str,
     max_executors: int,
-    unique_id_column: str,
 ) -> tuple[typing.Callable, typing.Callable, typing.Callable]:
     """Setup the datacube creation, path generation and post-job action
     functions for the given collection. Returns a tuple of three functions:
@@ -119,7 +118,7 @@ def setup_extraction_functions(
 
     post_job_actions = {
         ExtractionCollection.GEOMETRY_SCALEAG: partial(
-            post_job_action_geometry_scaleag, unique_id_column=unique_id_column
+            post_job_action_geometry_scaleag,
         ),
     }
 
@@ -279,6 +278,8 @@ if __name__ == "__main__":
 
     # Load the input dataframe and build the job dataframe
     input_df = load_dataframe(args.input_df)
+    input_df["sample_id"] = input_df[args.unique_id_column]
+    assert input_df["sample_id"].is_unique, "The unique ID column is not unique."
 
     job_df = None
     if not tracking_df_path.exists():
@@ -298,7 +299,6 @@ if __name__ == "__main__":
         args.memory,
         args.python_memory,
         args.max_executors,
-        args.unique_id_column,
     )
 
     # Initialize and setups the job manager
