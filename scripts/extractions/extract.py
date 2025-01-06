@@ -79,6 +79,7 @@ def setup_extraction_functions(
     memory: str,
     python_memory: str,
     max_executors: int,
+    unique_id_column: str,
 ) -> tuple[typing.Callable, typing.Callable, typing.Callable]:
     """Setup the datacube creation, path generation and post-job action
     functions for the given collection. Returns a tuple of three functions:
@@ -118,7 +119,7 @@ def setup_extraction_functions(
 
     post_job_actions = {
         ExtractionCollection.GEOMETRY_SCALEAG: partial(
-            post_job_action_geometry_scaleag,
+            post_job_action_geometry_scaleag, unique_id_column=unique_id_column
         ),
     }
 
@@ -235,18 +236,23 @@ if __name__ == "__main__":
         action="store_true",
         help="Restart the jobs that previously failed.",
     )
-
+    parser.add_argument(
+        "--unique_column_id",
+        type=str,
+        default="id",
+        help="The column contianing the unique sample IDs",
+    )
     args = parser.parse_args()
 
-    ### DEBUGGING
+    # ### DEBUGGING
     # args = pd.Series(
     #     {
     #         "collection": ExtractionCollection.GEOMETRY_SCALEAG,
     #         "output_folder": Path(
-    #             "/home/vito/millig/gio/data/scaleag_extractions/test"
+    #             "/home/vito/millig/gio/data/scaleag_extractions/test1/"
     #         ),
     #         "input_df": Path(
-    #             "/home/vito/millig/gio/data/scaleag_extractions/test/AVR_fields_10000_100000_subfields_yield_bel_nl_roads_removed_nodate.geojson"
+    #             "/home/vito/millig/gio/data/scaleag_extractions/test/AVR_fields_10000_100000_subfields_yield_bel_nl_roads_removed_nodate_10pt.geojson"
     #         ),
     #         "start_date": "2022-01-01",
     #         "end_date": "2022-12-31",
@@ -256,6 +262,7 @@ if __name__ == "__main__":
     #         "max_executors": 22,
     #         "parallel_jobs": 10,
     #         "restart_failed": False,
+    #         "unique_column_id": "fieldname",
     #     }
     # )
 
@@ -287,7 +294,11 @@ if __name__ == "__main__":
     # Setup the extraction functions
     pipeline_log.info("Setting up the extraction functions.")
     datacube_fn, path_fn, post_job_fn = setup_extraction_functions(
-        collection, args.memory, args.python_memory, args.max_executors
+        collection,
+        args.memory,
+        args.python_memory,
+        args.max_executors,
+        args.unique_column_id,
     )
 
     # Initialize and setups the job manager

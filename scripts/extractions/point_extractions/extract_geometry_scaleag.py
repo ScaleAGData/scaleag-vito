@@ -1,5 +1,6 @@
 """Extract S1, S2, METEO and DEM point data using OpenEO-GFMAP package."""
 
+from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 
@@ -16,7 +17,10 @@ from scaleagdata_vito.openeo.preprocessing import scaleag_preprocessed_inputs
 
 
 def generate_output_path_geometry_scaleag(
-    root_folder: Path, geometry_index: int, row: pd.Series, asset_id: str
+    root_folder: Path,
+    geometry_index: int,
+    row: pd.Series,
+    asset_id: Optional[str] = None,
 ):
     """
     For geometry extractions, only one asset (a geoparquet file) is generated per job.
@@ -25,36 +29,42 @@ def generate_output_path_geometry_scaleag(
     """
 
     s2_tile_id = row.s2_tile
+    utm_zone = str(s2_tile_id[0:2])
 
-    subfolder = root_folder / s2_tile_id
-
+    # Create the subfolder to store the output
+    subfolder = root_folder / utm_zone / s2_tile_id
     subfolder.mkdir(parents=True, exist_ok=True)
 
-    # Subfolder is not necessarily unique, so we create numbered folders.
-    if not any(subfolder.iterdir()):
-        real_subfolder = subfolder / "0"
-    else:
-        i = 0
-        while (subfolder / str(i)).exists():
-            i += 1
-        real_subfolder = subfolder / str(i)
-
-    return real_subfolder / f"geometry_extractions{row.out_extension}"
+    return (
+        subfolder
+        / f"SCALEAG_{root_folder.name}_{row.start_date}_{row.end_date}_{s2_tile_id}_{row.id}{row.out_extension}"
+    )
 
 
 def create_job_dataframe_geometry_scaleag(
-    backend: Backend, split_jobs: List[gpd.GeoDataFrame], start_date: str, end_date: str
+    backend: Backend,
+    split_jobs: List[gpd.GeoDataFrame],
+    start_date_user: str,
+    end_date_user: str,
 ) -> pd.DataFrame:
     """Create a dataframe from the split jobs, containg all the necessary information to run the job."""
     rows = []
+
+    # ensure start date is 1st day of month, end date is last day of month
+    start_date = datetime.strptime(start_date_user, "%Y-%m-%d")
+    end_date = datetime.strptime(end_date_user, "%Y-%m-%d")
+
+    start_date = start_date.replace(day=1)
+    end_date = end_date.replace(day=1) + pd.offsets.MonthEnd(0)
+
     for job in tqdm(split_jobs):
         s2_tile = job.tile.iloc[0]
         variables = {
             "backend_name": backend.value,
             "out_prefix": "geometry-extraction",
             "out_extension": ".geoparquet",
-            "start_date": start_date,
-            "end_date": end_date,
+            "start_date": start_date.strftime("%Y-%m-%d"),
+            "end_date": end_date.strftime("%Y-%m-%d"),
             "s2_tile": s2_tile,
             "geometry": job.to_json(),
         }
@@ -87,12 +97,20 @@ def create_job_geometry_scaleag(
     backend = Backend(row.backend_name)
     backend_context = BackendContext(backend)
 
+    # Try to get s2 tile ID to filter the collection
+    if "s2_tile" in row:
+        pipeline_log.debug(f"Extracting data for S2 tile {row.s2_tile}")
+        s2_tile = row.s2_tile
+    else:
+        s2_tile = None
+
     inputs = scaleag_preprocessed_inputs(
         connection=connection,
         backend_context=backend_context,
         spatial_extent=geometry,
         temporal_extent=temporal_extent,
         fetch_type=FetchType.POINT,
+        s2_tile=s2_tile,
     )
 
     # Finally, create a vector cube based on the Point geometries
@@ -122,7 +140,10 @@ def create_job_geometry_scaleag(
 
 
 def post_job_action_geometry_scaleag(
-    job_items: List[pystac.Item], row: pd.Series, parameters: Optional[dict] = None
+    job_items: List[pystac.Item],
+    row: pd.Series,
+    unique_id_column: str,
+    parameters: Optional[dict] = None,
 ) -> list:
     for idx, item in enumerate(job_items):
         item_asset_path = Path(list(item.assets.values())[0].href)
@@ -131,6 +152,29 @@ def post_job_action_geometry_scaleag(
 
         # Convert the dates to datetime format
         gdf["date"] = pd.to_datetime(gdf["date"])
+        gdf["lat"] = gdf.geometry.centroid.y
+        gdf["lon"] = gdf.geometry.centroid.x
+
+        # Rename the column containing unique ids according to convention
+        gdf = gdf.rename(columns={unique_id_column: "sample_id"})
+
+        # # For each sample, add start and end date to the dataframe
+        # # is there a better way to do this, as this is already done in the job creation?
+        sample_ids = gdf["sample_id"].unique()
+        assert len(sample_ids) == len(
+            gdf.loc[:, ["sample_id", "date"]].drop_duplicates()["sample_id"].unique()
+        ), "sample IDs are not unique!"
+        for sample_id in sample_ids:
+            sample = gdf[gdf["sample_id"] == sample_id]
+            start_date = pd.to_datetime(sample["date"].min()).replace(day=1)
+            end_date = pd.to_datetime(sample["date"].max()).replace(
+                day=1
+            ) + pd.offsets.MonthEnd(0)
+            start_date, end_date = start_date.strftime("%Y-%m-%d"), end_date.strftime(
+                "%Y-%m-%d"
+            )
+            gdf.loc[gdf["sample_id"] == sample_id, "start_date"] = start_date
+            gdf.loc[gdf["sample_id"] == sample_id, "end_date"] = end_date
 
         # Convert band dtype to uint16 (temporary fix)
         # TODO: remove this step when the issue is fixed on the OpenEO backend
@@ -142,6 +186,7 @@ def post_job_action_geometry_scaleag(
             "S2-L2A-B06",
             "S2-L2A-B07",
             "S2-L2A-B08",
+            "S2-L2A-B8A",
             "S2-L2A-B11",
             "S2-L2A-B12",
             "S1-SIGMA0-VH",
