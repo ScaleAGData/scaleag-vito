@@ -315,7 +315,7 @@ def precomposited_datacube_METEO(
         raise NotImplementedError(
             f"Period {period} is not supported for precomposited meteo."
         )
-    cube.result_node().update_arguments(featureflags={"tilesize": 1})
+    # cube.result_node().update_arguments(featureflags={"tilesize": 1})
     cube = cube.rename_labels(
         dimension="bands", target=["AGERA5-PRECIP", "AGERA5-TMEAN"]
     )
