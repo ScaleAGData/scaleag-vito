@@ -17,10 +17,10 @@ from openeo_gfmap.backend import cdse_connection
 from openeo_gfmap.manager.job_manager import GFMAPJobManager
 from openeo_gfmap.manager.job_splitters import split_job_s2grid
 from point_extractions.extract_geometry_scaleag import (
-    create_job_dataframe_geometry_scaleag,
-    create_job_geometry_scaleag,
-    generate_output_path_geometry_scaleag,
-    post_job_action_geometry_scaleag,
+    create_job_dataframe_sample_scaleag,
+    create_job_sample_scaleag,
+    generate_output_path_sample_scaleag,
+    post_job_action_sample_scaleag,
 )
 
 from scaleagdata_vito.openeo.extract import pipeline_log
@@ -29,7 +29,7 @@ from scaleagdata_vito.openeo.extract import pipeline_log
 class ExtractionCollection(Enum):
     """Collections that can be extracted in the extraction scripts."""
 
-    GEOMETRY_SCALEAG = "GEOMETRY_SCALEAG"
+    SAMPLE_SCALEAG = "SAMPLE_SCALEAG"  # sample
 
 
 def load_dataframe(df_path: Path) -> gpd.GeoDataFrame:
@@ -58,7 +58,7 @@ def prepare_job_dataframe(
 
     pipeline_log.info("Dataframes split to jobs, creating the job dataframe...")
     collection_switch: dict[ExtractionCollection, typing.Callable] = {
-        ExtractionCollection.GEOMETRY_SCALEAG: create_job_dataframe_geometry_scaleag,
+        ExtractionCollection.SAMPLE_SCALEAG: create_job_dataframe_sample_scaleag,
     }
 
     create_job_dataframe_fn = collection_switch.get(
@@ -88,8 +88,8 @@ def setup_extraction_functions(
     """
 
     datacube_creation = {
-        ExtractionCollection.GEOMETRY_SCALEAG: partial(
-            create_job_geometry_scaleag,
+        ExtractionCollection.SAMPLE_SCALEAG: partial(
+            create_job_sample_scaleag,
             executor_memory=memory,
             python_memory=python_memory,
             max_executors=max_executors,
@@ -104,8 +104,8 @@ def setup_extraction_functions(
     )
 
     path_fns = {
-        ExtractionCollection.GEOMETRY_SCALEAG: partial(
-            generate_output_path_geometry_scaleag
+        ExtractionCollection.SAMPLE_SCALEAG: partial(
+            generate_output_path_sample_scaleag
         ),
     }
 
@@ -117,8 +117,8 @@ def setup_extraction_functions(
     )
 
     post_job_actions = {
-        ExtractionCollection.GEOMETRY_SCALEAG: partial(
-            post_job_action_geometry_scaleag,
+        ExtractionCollection.SAMPLE_SCALEAG: partial(
+            post_job_action_sample_scaleag,
         ),
     }
 

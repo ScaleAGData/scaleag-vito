@@ -16,7 +16,7 @@ from scaleagdata_vito.openeo.extract import get_job_nb_polygons, pipeline_log
 from scaleagdata_vito.openeo.preprocessing import scaleag_preprocessed_inputs
 
 
-def generate_output_path_geometry_scaleag(
+def generate_output_path_sample_scaleag(
     root_folder: Path,
     geometry_index: int,
     row: pd.Series,
@@ -41,7 +41,7 @@ def generate_output_path_geometry_scaleag(
     )
 
 
-def create_job_dataframe_geometry_scaleag(
+def create_job_dataframe_sample_scaleag(
     backend: Backend,
     split_jobs: List[gpd.GeoDataFrame],
     start_date_user: str,
@@ -59,6 +59,12 @@ def create_job_dataframe_geometry_scaleag(
 
     for job in tqdm(split_jobs):
         s2_tile = job.tile.iloc[0]
+
+        job["lat"] = job.geometry.centroid.y
+        job["lon"] = job.geometry.centroid.x
+        job["start_date"] = start_date
+        job["end_date"] = end_date
+
         variables = {
             "backend_name": backend.value,
             "out_prefix": "geometry-extraction",
@@ -74,7 +80,7 @@ def create_job_dataframe_geometry_scaleag(
     return pd.DataFrame(rows)
 
 
-def create_job_geometry_scaleag(
+def create_job_sample_scaleag(
     row: pd.Series,
     connection: openeo.DataCube,
     provider,
@@ -139,7 +145,7 @@ def create_job_geometry_scaleag(
     )
 
 
-def post_job_action_geometry_scaleag(
+def post_job_action_sample_scaleag(
     job_items: List[pystac.Item],
     row: pd.Series,
     parameters: Optional[dict] = None,
@@ -151,24 +157,6 @@ def post_job_action_geometry_scaleag(
 
         # Convert the dates to datetime format
         gdf["date"] = pd.to_datetime(gdf["date"])
-        gdf["lat"] = gdf.geometry.centroid.y
-        gdf["lon"] = gdf.geometry.centroid.x
-
-        # # For each sample, add start and end date to the dataframe
-        # # is there a better way to do this, as this is already done in the job creation?
-        sample_ids = gdf["sample_id"].unique()
-
-        for sample_id in sample_ids:
-            sample = gdf[gdf["sample_id"] == sample_id]
-            start_date = pd.to_datetime(sample["date"].min()).replace(day=1)
-            end_date = pd.to_datetime(sample["date"].max()).replace(
-                day=1
-            ) + pd.offsets.MonthEnd(0)
-            start_date, end_date = start_date.strftime("%Y-%m-%d"), end_date.strftime(
-                "%Y-%m-%d"
-            )
-            gdf.loc[gdf["sample_id"] == sample_id, "start_date"] = start_date
-            gdf.loc[gdf["sample_id"] == sample_id, "end_date"] = end_date
 
         # Convert band dtype to uint16 (temporary fix)
         # TODO: remove this step when the issue is fixed on the OpenEO backend
