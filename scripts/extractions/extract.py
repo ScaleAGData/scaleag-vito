@@ -16,14 +16,14 @@ from openeo_gfmap import Backend
 from openeo_gfmap.backend import cdse_connection
 from openeo_gfmap.manager.job_manager import GFMAPJobManager
 from openeo_gfmap.manager.job_splitters import split_job_s2grid
-from point_extractions.extract_geometry_scaleag import (
+
+from scaleagdata_vito.openeo.extract import pipeline_log
+from scripts.extractions.point_extractions.extract_sample_scaleag import (
     create_job_dataframe_sample_scaleag,
     create_job_sample_scaleag,
     generate_output_path_sample_scaleag,
     post_job_action_sample_scaleag,
 )
-
-from scaleagdata_vito.openeo.extract import pipeline_log
 
 
 class ExtractionCollection(Enum):
