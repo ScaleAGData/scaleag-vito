@@ -41,7 +41,7 @@ dependencies = [
     "h5netcdf>=1.1.0",
     "openeo>=0.31.0",
     "cftime",
-    "presto-worldcereal==0.1.2",
+    "presto-worldcereal==0.1.6",
     "pytest-depends",
     "pyarrow",
     "geopandas",
