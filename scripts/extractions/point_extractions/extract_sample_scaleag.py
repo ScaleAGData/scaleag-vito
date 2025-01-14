@@ -50,27 +50,44 @@ def create_job_dataframe_sample_scaleag(
     """Create a dataframe from the split jobs, containg all the necessary information to run the job."""
     rows = []
 
-    # ensure start date is 1st day of month, end date is last day of month
-    start_date = datetime.strptime(start_date_user, "%Y-%m-%d")
-    end_date = datetime.strptime(end_date_user, "%Y-%m-%d")
-
-    start_date = start_date.replace(day=1)
-    end_date = end_date.replace(day=1) + pd.offsets.MonthEnd(0)
-
     for job in tqdm(split_jobs):
         s2_tile = job.tile.iloc[0]
 
         job["lat"] = job.geometry.centroid.y
         job["lon"] = job.geometry.centroid.x
+        job["date"] = pd.to_datetime(job["date"], format="%Y-%m-%d")
+
+        if "date" in job.columns:
+            min_time = job.date.min()
+            max_time = job.date.max()
+
+            # 9 months before and after the valid time
+            _start_date = (min_time - pd.Timedelta(days=275)).to_pydatetime()
+            _end_date = (max_time + pd.Timedelta(days=275)).to_pydatetime()
+        else:
+            # ensure start date is 1st day of month, end date is last day of month
+            _start_date = datetime.strptime(start_date_user, "%Y-%m-%d").replace(day=1)
+            _end_date = datetime.strptime(end_date_user, "%Y-%m-%d").replace(
+                day=1
+            ) + pd.offsets.MonthEnd(0)
+
+        # Convert dates to string format
+        start_date, end_date = _start_date.strftime("%Y-%m-%d"), _end_date.strftime(
+            "%Y-%m-%d"
+        )
+
         job["start_date"] = start_date
         job["end_date"] = end_date
+
+        # set again as string so that it is json serializable
+        job["date"] = job.date.dt.strftime("%Y-%m-%d")
 
         variables = {
             "backend_name": backend.value,
             "out_prefix": "geometry-extraction",
             "out_extension": ".geoparquet",
-            "start_date": start_date.strftime("%Y-%m-%d"),
-            "end_date": end_date.strftime("%Y-%m-%d"),
+            "start_date": start_date,
+            "end_date": end_date,
             "s2_tile": s2_tile,
             "geometry": job.to_json(),
         }
@@ -174,6 +191,7 @@ def post_job_action_sample_scaleag(
             "S1-SIGMA0-VH",
             "S1-SIGMA0-VV",
             "elevation",
+            "slope",
             "AGERA5-PRECIP",
             "AGERA5-TMEAN",
         ]
