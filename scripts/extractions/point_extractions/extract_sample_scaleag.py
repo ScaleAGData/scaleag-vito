@@ -55,32 +55,35 @@ def create_job_dataframe_sample_scaleag(
 
         job["lat"] = job.geometry.centroid.y
         job["lon"] = job.geometry.centroid.x
-        job["date"] = pd.to_datetime(job["date"], format="%Y-%m-%d")
 
         if "date" in job.columns:
-            min_time = job.date.min()
-            max_time = job.date.max()
+            job.rename(columns={"date": "original_date"}, inplace=True)
+            job["original_date"] = pd.to_datetime(job["original_date"])
+
+            min_time = job.original_date.min()
+            max_time = job.original_date.max()
 
             # 9 months before and after the valid time
-            _start_date = (min_time - pd.Timedelta(days=275)).to_pydatetime()
-            _end_date = (max_time + pd.Timedelta(days=275)).to_pydatetime()
+            start_date = min_time - pd.Timedelta(days=275)
+            end_date = max_time + pd.Timedelta(days=275)
         else:
-            # ensure start date is 1st day of month, end date is last day of month
-            _start_date = datetime.strptime(start_date_user, "%Y-%m-%d").replace(day=1)
-            _end_date = datetime.strptime(end_date_user, "%Y-%m-%d").replace(
-                day=1
-            ) + pd.offsets.MonthEnd(0)
+            start_date = datetime.strptime(start_date_user, "%Y-%m-%d")
+            end_date = datetime.strptime(end_date_user, "%Y-%m-%d")
+
+        # ensure start date is 1st day of month, end date is last day of month
+        start_date = start_date.replace(day=1)
+        end_date = end_date.replace(day=1) + pd.offsets.MonthEnd(0)
 
         # Convert dates to string format
-        start_date, end_date = _start_date.strftime("%Y-%m-%d"), _end_date.strftime(
+        start_date, end_date = start_date.strftime("%Y-%m-%d"), end_date.strftime(
             "%Y-%m-%d"
         )
 
         job["start_date"] = start_date
         job["end_date"] = end_date
 
-        # set again as string so that it is json serializable
-        job["date"] = job.date.dt.strftime("%Y-%m-%d")
+        # # set again as string so that it is json serializable
+        job["original_date"] = job.original_date.dt.strftime("%Y-%m-%d")
 
         variables = {
             "backend_name": backend.value,
@@ -173,7 +176,8 @@ def post_job_action_sample_scaleag(
         gdf = gpd.read_parquet(item_asset_path)
 
         # Convert the dates to datetime format
-        gdf["date"] = pd.to_datetime(gdf["date"])
+        gdf["timestamp"] = pd.to_datetime(gdf["date"])
+        gdf.drop(columns=["date"], inplace=True)
 
         # Convert band dtype to uint16 (temporary fix)
         # TODO: remove this step when the issue is fixed on the OpenEO backend

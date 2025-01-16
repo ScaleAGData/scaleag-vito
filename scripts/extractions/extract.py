@@ -227,7 +227,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--parallel_jobs",
         type=int,
-        default=10,
+        default=2,
         help="The maximum number of parrallel jobs to run at the same time.",
     )
     parser.add_argument(
