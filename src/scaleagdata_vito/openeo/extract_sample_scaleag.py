@@ -1,7 +1,10 @@
 """Extract S1, S2, METEO and DEM point data using OpenEO-GFMAP package."""
 
+import logging
+import os
 from datetime import datetime
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 from typing import List, Optional
 
 import geojson
@@ -9,11 +12,82 @@ import geopandas as gpd
 import openeo
 import pandas as pd
 import pystac
+import requests
 from openeo_gfmap import Backend, BackendContext, FetchType, TemporalContext
 from tqdm import tqdm
 
-from scaleagdata_vito.openeo.extract import get_job_nb_polygons, pipeline_log
 from scaleagdata_vito.openeo.preprocessing import scaleag_preprocessed_inputs
+
+# Logger used for the pipeline
+pipeline_log = logging.getLogger("extraction_pipeline")
+
+pipeline_log.setLevel(level=logging.INFO)
+
+stream_handler = logging.StreamHandler()
+pipeline_log.addHandler(stream_handler)
+
+formatter = logging.Formatter("%(asctime)s|%(name)s|%(levelname)s:  %(message)s")
+stream_handler.setFormatter(formatter)
+
+
+# Exclude the other loggers from other libraries
+class ManagerLoggerFilter(logging.Filter):
+    """Filter to only accept the OpenEO-GFMAP manager logs."""
+
+    def filter(self, record):
+        return record.name in [pipeline_log.name]
+
+
+stream_handler.addFilter(ManagerLoggerFilter())
+
+
+def upload_geoparquet_artifactory(
+    gdf: gpd.GeoDataFrame, name: str, collection: str = ""
+) -> str:
+    """Upload the given GeoDataFrame to artifactory and return the URL of the
+    uploaded file. Necessary as a workaround for Polygon sampling in OpenEO
+    using custom CRS.
+    """
+    # Save the dataframe as geoparquet to upload it to artifactory
+    temporary_file = NamedTemporaryFile()
+    gdf.to_parquet(temporary_file.name)
+
+    artifactory_username = os.getenv("ARTIFACTORY_USERNAME")
+    artifactory_password = os.getenv("ARTIFACTORY_PASSWORD")
+
+    if not artifactory_username or not artifactory_password:
+        raise ValueError(
+            "Artifactory credentials not found. Please set ARTIFACTORY_USERNAME and ARTIFACTORY_PASSWORD."
+        )
+
+    headers = {"Content-Type": "application/octet-stream"}
+
+    upload_url = f"https://artifactory.vgt.vito.be/artifactory/auxdata-public/gfmap-temp/openeogfmap_dataframe_{collection}{name}.parquet"
+
+    with open(temporary_file.name, "rb") as f:
+        response = requests.put(
+            upload_url,
+            headers=headers,
+            data=f,
+            auth=(artifactory_username, artifactory_password),
+            timeout=180,
+        )
+
+    response.raise_for_status()
+
+    return upload_url
+
+
+def get_job_nb_polygons(row: pd.Series) -> int:
+    """Get the number of polygons in the geometry."""
+    return len(
+        list(
+            filter(
+                lambda feat: feat.properties.get("extract"),
+                geojson.loads(row.geometry)["features"],
+            )
+        )
+    )
 
 
 def generate_output_path_sample_scaleag(
@@ -204,3 +278,20 @@ def post_job_action_sample_scaleag(
         gdf.to_parquet(item_asset_path, index=False)
 
     return job_items
+
+
+def generate_extraction_job_command(
+    job_params, extraction_script_path="../scripts/extractions/extract.py"
+):
+    command = ["python", extraction_script_path]
+
+    for key, value in job_params.items():
+        if isinstance(value, bool):
+            if value:  # Add flag if True
+                command.append(f"--{key}")
+        elif value is not None:  # Skip None values
+            if key in ["output_folder", "input_df"]:
+                command.extend([f"-{key}", str(value)])
+            else:
+                command.extend([f"--{key}", str(value)])
+    return command

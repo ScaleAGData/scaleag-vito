@@ -61,7 +61,6 @@ def xr_to_df(netcdf_file):
 
     # add static columns
     df["start_date"] = np.datetime_as_string(tps[0].data, unit="D")
-    df["start_date"] = np.datetime_as_string(tps[0].data, unit="D")
     df["end_date"] = np.datetime_as_string(tps[-1].data, unit="D")
     df["lat"] = netcdf["lat"].data
     df["lon"] = netcdf["lon"].data

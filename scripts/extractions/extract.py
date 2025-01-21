@@ -16,20 +16,20 @@ from openeo_gfmap import Backend
 from openeo_gfmap.backend import cdse_connection
 from openeo_gfmap.manager.job_manager import GFMAPJobManager
 from openeo_gfmap.manager.job_splitters import split_job_s2grid
-from point_extractions.extract_sample_scaleag import (
+
+from scaleagdata_vito.openeo.extract import pipeline_log
+from scaleagdata_vito.openeo.extract_sample_scaleag import (
     create_job_dataframe_sample_scaleag,
     create_job_sample_scaleag,
     generate_output_path_sample_scaleag,
     post_job_action_sample_scaleag,
 )
 
-from scaleagdata_vito.openeo.extract import pipeline_log
-
 
 class ExtractionCollection(Enum):
     """Collections that can be extracted in the extraction scripts."""
 
-    SAMPLE_SCALEAG = "SAMPLE_SCALEAG"  # sample
+    SAMPLE_SCALEAG = "SAMPLE_SCALEAG"
 
 
 def load_dataframe(df_path: Path) -> gpd.GeoDataFrame:
@@ -184,16 +184,17 @@ def manager_main_loop(
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Extract data from a collection")
     parser.add_argument(
-        "collection",
+        "-output_folder", type=Path, help="The folder where to store the extracted data"
+    )
+    parser.add_argument(
+        "-input_df", type=Path, help="The input dataframe with the data to extract"
+    )
+    parser.add_argument(
+        "--collection",
         type=ExtractionCollection,
         choices=list(ExtractionCollection),
+        default=ExtractionCollection.SAMPLE_SCALEAG,
         help="The collection to extract",
-    )
-    parser.add_argument(
-        "output_folder", type=Path, help="The folder where to store the extracted data"
-    )
-    parser.add_argument(
-        "input_df", type=Path, help="The input dataframe with the data to extract"
     )
     parser.add_argument(
         "--start_date",
