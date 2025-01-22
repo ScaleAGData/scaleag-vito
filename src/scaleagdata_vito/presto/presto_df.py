@@ -1,99 +1,13 @@
 import logging
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Callable, Optional
 
-import geopandas as gpd
 import numpy as np
 import pandas as pd
-import tqdm
-import xarray as xr
-from shapely.geometry import Point
+from tqdm import tqdm
 
 logger = logging.getLogger(__name__)
-
-
-def to_float32(df):
-    return df.astype({c: np.float32 for c in df.columns if df[c].dtype == np.float64})
-
-
-def rename_cols(df, i):
-    BAND_MAPPING = {
-        "S2-L2A-B02": f"OPTICAL-B02-ts{i}-10m",
-        "S2-L2A-B03": f"OPTICAL-B03-ts{i}-10m",
-        "S2-L2A-B04": f"OPTICAL-B04-ts{i}-10m",
-        "S2-L2A-B05": f"OPTICAL-B05-ts{i}-20m",
-        "S2-L2A-B06": f"OPTICAL-B06-ts{i}-20m",
-        "S2-L2A-B07": f"OPTICAL-B07-ts{i}-20m",
-        "S2-L2A-B08": f"OPTICAL-B08-ts{i}-10m",
-        "S2-L2A-B8A": f"OPTICAL-B8A-ts{i}-20m",
-        "S2-L2A-B11": f"OPTICAL-B11-ts{i}-20m",
-        "S2-L2A-B12": f"OPTICAL-B12-ts{i}-20m",
-        "S1-SIGMA0-VH": f"SAR-VH-ts{i}-20m",
-        "S1-SIGMA0-VV": f"SAR-VV-ts{i}-20m",
-        "AGERA5-PRECIP": f"METEO-precipitation_flux-ts{i}-100m",
-        "AGERA5-TMEAN": f"METEO-temperature_mean-ts{i}-100m",
-    }
-    return df.rename(columns=BAND_MAPPING)
-
-
-def xr_to_df(netcdf_file):
-    """
-    Convert the NetCDF dataset to a pandas DataFrame.
-
-    Parameters:
-    netcdf_file (str): The path to the NetCDF file extracted from OpenEO.
-
-    Returns:
-    pandas.DataFrame: The data stored in netcdf arranged in a DataFrame.
-    """
-
-    netcdf = xr.load_dataset(netcdf_file)
-    df = pd.DataFrame()
-    tps = list(netcdf["t"])
-    for i in range(len(tps)):
-        tp = (
-            netcdf.sel(t=tps[i])
-            .to_dataframe()
-            .drop(columns=["COP-DEM", "feature_names", "t", "lat", "lon"])
-        )
-        tp = rename_cols(tp, i)
-        df = pd.concat([df, tp], axis=1)
-
-    # add static columns
-    df["start_date"] = np.datetime_as_string(tps[0].data, unit="D")
-    df["end_date"] = np.datetime_as_string(tps[-1].data, unit="D")
-    df["lat"] = netcdf["lat"].data
-    df["lon"] = netcdf["lon"].data
-    df["DEM-alt-20m"] = netcdf.sel(t=tps[0])["COP-DEM"].data
-    df["DEM-slo-20m"] = 0
-    return df
-
-
-def add_labels(df, labels_file):
-    """
-    Adds labels to a DataFrame based on a GeoDataFrame of labels.
-
-    Parameters:
-    - df (pandas.DataFrame): The DataFrame to add labels to.
-    - gdf_labels (geopandas.GeoDataFrame): The GeoDataFrame containing the labels. this dataframe
-    was used to collect datapoints from OpenEO so it contains the geometries which will be intersected with the
-    df to add the labels.
-    - gdf_labels (geopandas.GeoDataFrame): The GeoDataFrame containing the labels. this dataframe
-    was used to collect datapoints from OpenEO so it contains the geometries which will be intersected with the
-    df to add the labels.
-
-    Returns:
-    - pandas.DataFrame: The DataFrame with labels added.
-
-    """
-    label_gdf = gpd.read_file(labels_file)
-    df["geometry"] = [Point(r.lon, r.lat) for r in df.itertuples()]
-    gdf = gpd.GeoDataFrame(df, geometry="geometry", crs="EPSG:4326")
-    df_labeled = gpd.sjoin(gdf, label_gdf, how="left", op="within")
-    df_labeled = df_labeled.drop(columns=["geometry", "index_right"])
-    df_labeled = df_labeled.drop_duplicates()
-    df_labeled = df_labeled.replace(np.nan, 65535)
-    return to_float32(df_labeled)
 
 
 def prep_dataframe(
@@ -451,3 +365,24 @@ def get_month_array(num_timesteps: int, row: pd.Series) -> np.ndarray:
         date_vector[-1] = end_date
 
     return np.array([d.month - 1 for d in date_vector])
+
+
+def load_dataset(files_root_dir, num_timesteps=36):
+    files = list(Path(files_root_dir).glob("*/*/*.geoparquet"))
+    df_list = []
+    corrupted = []
+    for f in tqdm(files):
+        _data = pd.read_parquet(f, engine="fastparquet")
+        if not all(
+            item in _data.columns for item in ["lat", "lon", "start_date", "end_date"]
+        ):
+            corrupted.append(f)
+            continue
+        _ref_id = str(f).split("/")[-2].split("=")[-1]
+        _data["ref_id"] = _ref_id
+        _data_pivot = process_parquet(_data, num_timesteps=num_timesteps)
+        _data_pivot.reset_index(inplace=True)
+        df_list.append(_data_pivot)
+    df = pd.concat(df_list)
+    del df_list
+    return df

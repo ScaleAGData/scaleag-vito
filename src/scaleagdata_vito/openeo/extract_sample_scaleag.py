@@ -120,6 +120,7 @@ def create_job_dataframe_sample_scaleag(
     split_jobs: List[gpd.GeoDataFrame],
     start_date_user: str,
     end_date_user: str,
+    composite_window: str = "dekad",
 ) -> pd.DataFrame:
     """Create a dataframe from the split jobs, containg all the necessary information to run the job."""
     rows = []
@@ -167,6 +168,7 @@ def create_job_dataframe_sample_scaleag(
             "end_date": end_date,
             "s2_tile": s2_tile,
             "geometry": job.to_json(),
+            "composite_window": composite_window,
         }
 
         rows.append(pd.Series(variables))
@@ -209,6 +211,7 @@ def create_job_sample_scaleag(
         backend_context=backend_context,
         spatial_extent=geometry,
         temporal_extent=temporal_extent,
+        composite_window=row.composite_window,
         fetch_type=FetchType.POINT,
         s2_tile=s2_tile,
     )
@@ -281,7 +284,7 @@ def post_job_action_sample_scaleag(
 
 
 def generate_extraction_job_command(
-    job_params, extraction_script_path="../scripts/extractions/extract.py"
+    job_params, extraction_script_path="scaleag-vito/scripts/extractions/extract.py"
 ):
     command = ["python", extraction_script_path]
 
@@ -294,4 +297,5 @@ def generate_extraction_job_command(
                 command.extend([f"-{key}", str(value)])
             else:
                 command.extend([f"--{key}", str(value)])
-    return command
+    command = " ".join(command)
+    print(command)

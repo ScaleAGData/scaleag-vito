@@ -17,11 +17,11 @@ from openeo_gfmap.backend import cdse_connection
 from openeo_gfmap.manager.job_manager import GFMAPJobManager
 from openeo_gfmap.manager.job_splitters import split_job_s2grid
 
-from scaleagdata_vito.openeo.extract import pipeline_log
 from scaleagdata_vito.openeo.extract_sample_scaleag import (
     create_job_dataframe_sample_scaleag,
     create_job_sample_scaleag,
     generate_output_path_sample_scaleag,
+    pipeline_log,
     post_job_action_sample_scaleag,
 )
 
@@ -49,6 +49,7 @@ def prepare_job_dataframe(
     backend: Backend,
     start_date: str,
     end_date: str,
+    composite_window: str,
 ) -> gpd.GeoDataFrame:
     """Prepare the job dataframe to extract the data from the given input
     dataframe."""
@@ -68,7 +69,9 @@ def prepare_job_dataframe(
         ),
     )
 
-    job_df = create_job_dataframe_fn(backend, split_dfs, start_date, end_date)
+    job_df = create_job_dataframe_fn(
+        backend, split_dfs, start_date, end_date, composite_window
+    )
     pipeline_log.info("Job dataframe created with %s jobs.", len(job_df))
 
     return job_df
@@ -205,9 +208,16 @@ if __name__ == "__main__":
         type=str,
     )
     parser.add_argument(
+        "--composite_window",
+        type=str,
+        choices=["dekad", "month"],
+        default="dekad",
+        help="The temporal resolution of the data to extract. can be either month or dekad",
+    )
+    parser.add_argument(
         "--max_locations",
         type=int,
-        default=500,
+        default=50,
         help="The maximum number of locations to extract per job",
     )
     parser.add_argument(
@@ -269,6 +279,7 @@ if __name__ == "__main__":
             backend,
             args.start_date,
             args.end_date,
+            args.composite_window,
         )
 
     # Setup the extraction functions
