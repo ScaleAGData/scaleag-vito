@@ -16,20 +16,20 @@ from openeo_gfmap import Backend
 from openeo_gfmap.backend import cdse_connection
 from openeo_gfmap.manager.job_manager import GFMAPJobManager
 from openeo_gfmap.manager.job_splitters import split_job_s2grid
-from point_extractions.extract_geometry_scaleag import (
+
+from scaleagdata_vito.openeo.extract_sample_scaleag import (
     create_job_dataframe_sample_scaleag,
     create_job_sample_scaleag,
     generate_output_path_sample_scaleag,
+    pipeline_log,
     post_job_action_sample_scaleag,
 )
-
-from scaleagdata_vito.openeo.extract import pipeline_log
 
 
 class ExtractionCollection(Enum):
     """Collections that can be extracted in the extraction scripts."""
 
-    SAMPLE_SCALEAG = "SAMPLE_SCALEAG"  # sample
+    SAMPLE_SCALEAG = "SAMPLE_SCALEAG"
 
 
 def load_dataframe(df_path: Path) -> gpd.GeoDataFrame:
@@ -49,6 +49,7 @@ def prepare_job_dataframe(
     backend: Backend,
     start_date: str,
     end_date: str,
+    composite_window: str,
 ) -> gpd.GeoDataFrame:
     """Prepare the job dataframe to extract the data from the given input
     dataframe."""
@@ -68,7 +69,9 @@ def prepare_job_dataframe(
         ),
     )
 
-    job_df = create_job_dataframe_fn(backend, split_dfs, start_date, end_date)
+    job_df = create_job_dataframe_fn(
+        backend, split_dfs, start_date, end_date, composite_window
+    )
     pipeline_log.info("Job dataframe created with %s jobs.", len(job_df))
 
     return job_df
@@ -184,16 +187,17 @@ def manager_main_loop(
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Extract data from a collection")
     parser.add_argument(
-        "collection",
+        "-output_folder", type=Path, help="The folder where to store the extracted data"
+    )
+    parser.add_argument(
+        "-input_df", type=Path, help="The input dataframe with the data to extract"
+    )
+    parser.add_argument(
+        "--collection",
         type=ExtractionCollection,
         choices=list(ExtractionCollection),
+        default=ExtractionCollection.SAMPLE_SCALEAG,
         help="The collection to extract",
-    )
-    parser.add_argument(
-        "output_folder", type=Path, help="The folder where to store the extracted data"
-    )
-    parser.add_argument(
-        "input_df", type=Path, help="The input dataframe with the data to extract"
     )
     parser.add_argument(
         "--start_date",
@@ -204,9 +208,16 @@ if __name__ == "__main__":
         type=str,
     )
     parser.add_argument(
+        "--composite_window",
+        type=str,
+        choices=["dekad", "month"],
+        default="dekad",
+        help="The temporal resolution of the data to extract. can be either month or dekad",
+    )
+    parser.add_argument(
         "--max_locations",
         type=int,
-        default=500,
+        default=50,
         help="The maximum number of locations to extract per job",
     )
     parser.add_argument(
@@ -227,7 +238,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--parallel_jobs",
         type=int,
-        default=10,
+        default=2,
         help="The maximum number of parrallel jobs to run at the same time.",
     )
     parser.add_argument(
@@ -268,6 +279,7 @@ if __name__ == "__main__":
             backend,
             args.start_date,
             args.end_date,
+            args.composite_window,
         )
 
     # Setup the extraction functions

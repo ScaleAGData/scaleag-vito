@@ -1,9 +1,6 @@
-import pathlib
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
-import geojson
-import xarray as xr
 from geojson import GeoJSON
 from openeo import UDF, Connection, DataCube
 from openeo_gfmap import (
@@ -280,7 +277,7 @@ def precomposited_datacube_METEO(
     connection: Connection,
     spatial_extent: SpatialContext,
     temporal_extent: TemporalContext,
-    period: str = "dekad",
+    period: str = "decad",
 ) -> DataCube:
     """Extract the precipitation and temperature AGERA5 data from a
     pre-composited and pre-processed collection. The data is stored in the
@@ -328,7 +325,7 @@ def scaleag_preprocessed_inputs(
     backend_context: BackendContext,
     spatial_extent: Union[GeoJSON, BoundingBoxExtent, str],
     temporal_extent: TemporalContext,
-    period: str = "dekad",
+    composite_window: str = "dekad",
     fetch_type: Optional[FetchType] = FetchType.POINT,
     disable_meteo: bool = False,
     s1_orbit_state: Optional[str] = None,
@@ -376,7 +373,7 @@ def scaleag_preprocessed_inputs(
         tile_size=tile_size,
     )
 
-    s2_data = median_compositing(s2_data, period=period)
+    s2_data = median_compositing(s2_data, period=composite_window)
 
     # Cast to uint16
     s2_data = s2_data.linear_scale_range(0, 65534, 0, 65534)
@@ -399,7 +396,7 @@ def scaleag_preprocessed_inputs(
         tile_size=tile_size,
     )
 
-    s1_data = mean_compositing(s1_data, period=period)
+    s1_data = mean_compositing(s1_data, period=composite_window)
     s1_data = compress_backscatter_uint16(backend_context, s1_data)
 
     dem_data = raw_datacube_DEM(
@@ -423,7 +420,7 @@ def scaleag_preprocessed_inputs(
             connection=connection,
             spatial_extent=spatial_extent,
             temporal_extent=temporal_extent,
-            period=period,
+            period=composite_window,
         )
 
         # Explicitly resample meteo with bilinear interpolation
@@ -432,46 +429,3 @@ def scaleag_preprocessed_inputs(
         data = data.merge_cubes(meteo_data)
 
     return data
-
-
-def run_openeo_extraction_job(gdf, output_path, job_params):
-    """
-    Runs an OpenEO extraction job using the provided parameters.
-    Args:
-        gdf (GeoDataFrame): The GeoDataFrame containing the spatial extent.
-        output_path (str): The path to save the output file.
-        job_params (dict): A dictionary containing the job parameters.
-    Returns:
-        None
-    """
-
-    geometry_latlon = geojson.loads(gdf.to_json())
-    inputs = scaleag_preprocessed_inputs(
-        connection=job_params["connection"],
-        backend_context=job_params["backend_context"],
-        spatial_extent=geometry_latlon,
-        temporal_extent=job_params["temporal_extent"],
-        fetch_type=job_params["fetch_type"],
-        disable_meteo=job_params["disable_meteo"],
-    )
-    cube = inputs.aggregate_spatial(geometries=geometry_latlon, reducer="mean")
-
-    job = cube.create_job(
-        outputfile=output_path,
-        out_format=job_params["out_format"],
-        title=job_params["title"],
-        job_options={
-            "driver-memory": "4g",
-            "executor-memoryOverhead": "4g",
-            "soft-error": True,
-        },
-    )
-    job.start_and_wait()
-    job.download_result(output_path)
-
-
-def merge_datacubes(dataset, subset):
-    if isinstance(dataset, Union[str, pathlib.PosixPath]):
-        dataset = xr.load_dataset(dataset)
-    subset = xr.load_dataset(subset)
-    return xr.concat([dataset, subset], dim="feature")

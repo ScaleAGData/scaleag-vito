@@ -1,14 +1,18 @@
 from datetime import datetime, timedelta
-from typing import Dict, Literal, Tuple
+from typing import Literal, Optional, Tuple
 
 import numpy as np
 import pandas as pd
 from presto.dataops import (
     BANDS,
     BANDS_GROUPS_IDX,
+    NDVI_INDEX,
     NORMED_BANDS,
+    NUM_TIMESTEPS,
     S1_S2_ERA5_SRTM,
+    S2_RGB_INDEX,
     DynamicWorld2020_2021,
+    S2_NIR_10m_INDEX,
 )
 from presto.masking import BAND_EXPANSION
 from torch.utils.data import Dataset
@@ -45,10 +49,12 @@ class ScaleAgBase(Dataset):
         dataframe: pd.DataFrame,
         target_name: str,
         task: Literal["regression", "binary", "multiclass"],
+        num_timesteps: int = NUM_TIMESTEPS,  #
     ):
         self.df = dataframe.replace({np.nan: self._NODATAVALUE})
         self.target_name = target_name
         self.task = task
+        self.num_timesteps = num_timesteps
 
         if self.task == "multiclass":
             self.class_to_index = {
@@ -61,33 +67,35 @@ class ScaleAgBase(Dataset):
     def __len__(self):
         return self.df.shape[0]
 
-    @staticmethod
-    def get_target(row_d: Dict, target_name: str) -> int:
-        return int(row_d[target_name])
+    def get_target(self, row_d: pd.Series) -> int:
+        return int(row_d[self.target_name])
 
-    @classmethod
     def row_to_arrays(
-        cls, row: pd.Series, target_name: str
+        self,
+        row: pd.Series,
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, float, int]:
         # https://stackoverflow.com/questions/45783891/is-there-a-way-to-speed-up-the-pandas-getitem-getitem-axis-and-get-label
         # This is faster than indexing the series every time!
         row_d = pd.Series.to_dict(row)
 
         latlon = np.array([row_d["lat"], row_d["lon"]], dtype=np.float32)
+
+        # make sure that month for encoding gets shifted according to
+        # the selected timestep positions. Also ensure circular indexing
         month = datetime.strptime(row_d["start_date"], "%Y-%m-%d").month - 1
 
-        eo_data = np.zeros((cls.NUM_TIMESTEPS, len(BANDS)))
+        eo_data = np.zeros((self.num_timesteps, len(BANDS)))
         # an assumption we make here is that all timesteps for a token
         # have the same masking
-        mask = np.zeros((cls.NUM_TIMESTEPS, len(BANDS_GROUPS_IDX)))
-        for df_val, presto_val in cls.BAND_MAPPING.items():
+        mask = np.zeros((self.num_timesteps, len(BANDS_GROUPS_IDX)))
+        for df_val, presto_val in self.BAND_MAPPING.items():
             # retrieve ts for each band column df_val
             values = np.array(
-                [float(row_d[df_val.format(t)]) for t in range(cls.NUM_TIMESTEPS)]
+                [float(row_d[df_val.format(t)]) for t in range(self.num_timesteps)]
             )
             # this occurs for the DEM values in one point in Fiji
-            values = np.nan_to_num(values, nan=cls._NODATAVALUE)
-            idx_valid = values != cls._NODATAVALUE
+            values = np.nan_to_num(values, nan=self._NODATAVALUE)
+            idx_valid = values != self._NODATAVALUE
             if presto_val in ["VV", "VH"]:
                 # convert to dB
                 idx_valid = idx_valid & (values > 0)
@@ -101,23 +109,41 @@ class ScaleAgBase(Dataset):
             mask[:, IDX_TO_BAND_GROUPS[presto_val]] += ~idx_valid
             # add values to eo at specifix index. the order followed is the one suggested by BANDS
             eo_data[:, BANDS.index(presto_val)] = values
-        for df_val, presto_val in cls.STATIC_BAND_MAPPING.items():
+        for df_val, presto_val in self.STATIC_BAND_MAPPING.items():
             # this occurs for the DEM values in one point in Fiji
-            values = np.nan_to_num(row_d[df_val], nan=cls._NODATAVALUE)
-            idx_valid = values != cls._NODATAVALUE
+            values = np.nan_to_num(row_d[df_val], nan=self._NODATAVALUE)
+            idx_valid = values != self._NODATAVALUE
             eo_data[:, BANDS.index(presto_val)] = values
             mask[:, IDX_TO_BAND_GROUPS[presto_val]] += ~idx_valid
 
+        # check if the visual bands mask is True
+        # or nir mask, and adjust the NDVI mask accordingly
+        mask[:, NDVI_INDEX] = np.logical_or(
+            mask[:, S2_RGB_INDEX], mask[:, S2_NIR_10m_INDEX]
+        )
+
         return (
-            cls.check(eo_data),
+            self.check(eo_data),
             mask.astype(bool),
             latlon,
             month,
-            row_d[target_name],
+            self.get_target(row_d),
         )
 
     def __getitem__(self, idx):
-        raise NotImplementedError
+        # Get the sample
+        row = self.df.iloc[idx, :]
+        eo, mask_per_token, latlon, month, target = self.row_to_arrays(row)
+
+        mask_per_variable = np.repeat(mask_per_token, BAND_EXPANSION, axis=1)
+        return (
+            self.normalize_and_mask(eo),
+            np.ones(self.num_timesteps) * (DynamicWorld2020_2021.class_amount),
+            latlon,
+            month,
+            mask_per_variable,
+            target,
+        )
 
     @classmethod
     def normalize_and_mask(cls, eo: np.ndarray):
@@ -137,92 +163,59 @@ class ScaleAgBase(Dataset):
 
 class ScaleAGDataset(ScaleAgBase):
 
-    UPPER_BOUND = 120000
-    LOWER_BOUND = 10000
-
     def __init__(
         self,
         dataframe: pd.DataFrame,
         target_name: str,
         task: Literal["regression", "binary", "multiclass"],
+        num_timesteps: int = NUM_TIMESTEPS,
+        upper_bound: Optional[float] = None,
+        lower_bound: Optional[float] = None,
     ):
+        super().__init__(dataframe, target_name, task, num_timesteps)
+
         # bound label values to valid range
         if task == "regression":
+            if upper_bound is None or lower_bound is None:
+                upper_bound = dataframe[target_name].max()
+                lower_bound = dataframe[target_name].min()
+            self.lower_bound = lower_bound
+            self.upper_bound = upper_bound
             dataframe[target_name] = dataframe[target_name].clip(
-                lower=self.LOWER_BOUND, upper=self.UPPER_BOUND
+                lower=lower_bound, upper=upper_bound
             )
             self.mean = np.mean(dataframe[target_name])
             self.std = np.std(dataframe[target_name])
 
-        super().__init__(dataframe, target_name, task)
-
     def __getitem__(self, idx):
         # Get the sample
         row = self.df.iloc[idx, :]
-        eo, mask_per_token, latlon, month, target = self.row_to_arrays(
-            row, self.target_name
-        )
+        eo, mask_per_token, latlon, month, target = self.row_to_arrays(row)
         mask_per_variable = np.repeat(mask_per_token, BAND_EXPANSION, axis=1)
         if self.task == "regression":
             target = self.normalize_target(target)
         # convert classes to indices for multiclass
         elif self.task == "multiclass":
             target = self.class_to_index[target]
+
         return (
             self.normalize_and_mask(eo),
             target,
-            np.ones(self.NUM_TIMESTEPS) * (DynamicWorld2020_2021.class_amount),
+            np.ones(self.num_timesteps) * (DynamicWorld2020_2021.class_amount),
             latlon,
-            month,
+            self.get_month_array(row) if self.num_timesteps == 36 else month,
             mask_per_variable,
         )
 
-    def normalize_target(self, target):
-        return (target - self.LOWER_BOUND) / (self.UPPER_BOUND - self.LOWER_BOUND)
-
-    def z_scaling(self, x):
-        return (x - self.mean) / self.std
-
-    def revert_to_original_units(self, target_norm):
-        return target_norm * (self.UPPER_BOUND - self.LOWER_BOUND) + self.LOWER_BOUND
-
-
-class ScaleAG10DDataset(ScaleAGDataset):
-
-    NUM_TIMESTEPS = 36
-
-    def __getitem__(self, idx):
-        # Get the sample
-        row = self.df.iloc[idx, :]
-        eo, mask_per_token, latlon, _, target = self.row_to_arrays(
-            row, self.target_name
-        )
-        mask_per_variable = np.repeat(mask_per_token, BAND_EXPANSION, axis=1)
-        # normalize target for regression
-        if self.task == "regression":
-            target = self.normalize_target(target)
-        # convert classes to indices for multiclass
-        elif self.task == "multiclass":
-            target = self.class_to_index[target]
-        return (
-            self.normalize_and_mask(eo),
-            target,
-            np.ones(self.NUM_TIMESTEPS) * (DynamicWorld2020_2021.class_amount),
-            latlon,
-            self.get_month_array(row),
-            mask_per_variable,
-        )
-
-    @classmethod
-    def get_month_array(cls, row: pd.Series) -> np.ndarray:
+    def get_month_array(self, row: pd.Series) -> np.ndarray:
         start_date, end_date = datetime.strptime(
             row.start_date, "%Y-%m-%d"
         ), datetime.strptime(row.end_date, "%Y-%m-%d")
 
         # Calculate the step size for 10-day intervals and create a list of dates
-        step = int((end_date - start_date).days / (cls.NUM_TIMESTEPS - 1))
+        step = int((end_date - start_date).days / (self.num_timesteps - 1))
         date_vector = [
-            start_date + timedelta(days=i * step) for i in range(cls.NUM_TIMESTEPS)
+            start_date + timedelta(days=i * step) for i in range(self.num_timesteps)
         ]
 
         # Ensure last date is not beyond the end date
@@ -230,3 +223,12 @@ class ScaleAG10DDataset(ScaleAGDataset):
             date_vector[-1] = end_date
 
         return np.array([d.month - 1 for d in date_vector])
+
+    def normalize_target(self, target):
+        return (target - self.lower_bound) / (self.upper_bound - self.lower_bound)
+
+    def z_scaling(self, x):
+        return (x - self.mean) / self.std
+
+    def revert_to_original_units(self, target_norm):
+        return target_norm * (self.upper_bound - self.lower_bound) + self.lower_bound
