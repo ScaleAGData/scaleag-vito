@@ -367,7 +367,7 @@ def get_month_array(num_timesteps: int, row: pd.Series) -> np.ndarray:
     return np.array([d.month - 1 for d in date_vector])
 
 
-def load_dataset(files_root_dir, num_timesteps=36):
+def load_dataset(files_root_dir, num_timesteps=36, no_data_value=65535):
     files = list(Path(files_root_dir).glob("*/*/*.geoparquet"))
     df_list = []
     corrupted = []
@@ -384,5 +384,6 @@ def load_dataset(files_root_dir, num_timesteps=36):
         _data_pivot.reset_index(inplace=True)
         df_list.append(_data_pivot)
     df = pd.concat(df_list)
+    df = df.fillna(no_data_value)
     del df_list
     return df
