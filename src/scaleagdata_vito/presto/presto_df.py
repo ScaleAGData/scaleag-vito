@@ -461,14 +461,15 @@ def load_dataset(
                 )
             # extend the window of interest by buffering it with a a number of buffer dates before and after indicated by buffer_window
             if buffer_window > 0:
-                window_of_interest = get_buffered_window_of_interest(
+                window_of_interest_buffered = get_buffered_window_of_interest(
                     window_of_interest,
                     buffer=buffer_window,
                     compositing_window=composite_window,
                 )
-            # filter data to only include data within the window of interest
-            _data = extract_window_of_interest(_data, window_of_interest)
-
+                # filter data to only include data within the window of interest
+                _data = extract_window_of_interest(_data, window_of_interest_buffered)
+            else:
+                _data = extract_window_of_interest(_data, window_of_interest)
         _data_pivot = process_parquet(_data)
         _data_pivot.reset_index(inplace=True)
         df_list.append(_data_pivot)
