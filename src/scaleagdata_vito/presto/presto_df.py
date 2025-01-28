@@ -1,7 +1,7 @@
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable, List, Literal, Optional
 
 import numpy as np
 import pandas as pd
@@ -35,7 +35,7 @@ def prep_dataframe(
 def process_parquet(
     df: pd.DataFrame,
     use_valid_time: bool = False,
-    num_timesteps: int = 36,
+    num_timesteps: int = 12,
     min_edge_buffer: int = 2,
     no_data_value: int = 65535,
 ) -> pd.DataFrame:
@@ -102,7 +102,7 @@ def process_parquet(
             "elevation": "DEM-alt-20m",
             # since the openEO output has the attribute "valid_time",
             # # we need the following line for compatibility with earlier datasets
-            "valid_date": "valid_time",
+            "original_date": "valid_time",
             "date": "timestamp",
         },
         inplace=True,
@@ -148,6 +148,7 @@ def process_parquet(
     index_columns.extend(["start_date", "end_date"])
 
     if use_valid_time:
+        df["valid_time"] = pd.to_datetime(df["valid_time"])
         df["valid_time_ts_diff_days"] = (
             df["valid_time"] - df["timestamp"]
         ).dt.days.abs()
@@ -303,84 +304,172 @@ number of available timesteps less than {num_timesteps}."
     return df_pivot
 
 
-def filter_ts(df_to_filter, window_of_interest, no_data_value=65535, num_ts=36):
-    """
-    Filters the time series data in the given DataFrame based on the specified window of interest.
-
-    Args:
-        df_to_filter (pandas.DataFrame): The DataFrame containing the time series data to be filtered.
-        window_of_interest (tuple): A tuple representing the window of interest, where the first element is the start month and the second element is the end month.
-        no_data_value (int, optional): The value to replace the filtered time series data with. Defaults to 65535.
-        num_ts (int, optional): The number of time series in the DataFrame. Defaults to 36.
-
-    Returns:
-        pandas.DataFrame: The filtered DataFrame with the specified time series data replaced by the no_data_value.
-    """
-    if len(df_to_filter["start_date"].unique()) == len(
-        df_to_filter["end_date"].unique()
-    ):
-        ref_row = df_to_filter.iloc[0]
-        months = get_month_array(num_ts, ref_row)
-        ts_to_filter = [
-            t
-            for t in range(num_ts)
-            if months[t]
-            not in np.arange(window_of_interest[0] - 1, window_of_interest[1])
-        ]
-        ts_cols = [
-            ts for ts in df_to_filter.columns for t in ts_to_filter if f"-ts{t}-" in ts
-        ]
-        df_to_filter.loc[:, ts_cols] = np.float32(no_data_value)
+def _get_correct_date(
+    dt_in: pd.Timestamp, compositing_window: Literal["dekad", "monthly"] = "dekad"
+):
+    if compositing_window == "dekad":
+        if dt_in.day <= 10:
+            correct_date = datetime(dt_in.year, dt_in.month, 1, 0, 0, 0)
+        if dt_in.day >= 11 and dt_in.day <= 20:
+            correct_date = datetime(dt_in.year, dt_in.month, 11, 0, 0, 0)
+        if dt_in.day >= 21:
+            correct_date = datetime(dt_in.year, dt_in.month, 21, 0, 0, 0)
+    elif compositing_window == "monthly":
+        correct_date = datetime(dt_in.year, dt_in.month, 1, 0, 0, 0)
     else:
-        for i, row in tqdm.tqdm(df_to_filter.iterrows()):
-            row = df_to_filter.iloc[i]
-            months = get_month_array(num_ts, row)
-            ts_to_filter = [
-                t
-                for t in range(num_ts)
-                if months[t]
-                not in np.arange(window_of_interest[0] - 1, window_of_interest[1])
-            ]
-            ts_cols = [
-                ts
-                for ts in df_to_filter.columns
-                for t in ts_to_filter
-                if f"-ts{t}-" in ts
-            ]
-            df_to_filter.loc[i, ts_cols] = np.float32(no_data_value)
-    return df_to_filter
+        raise ValueError(f"Unknown compositing window: {compositing_window}")
+
+    return correct_date
 
 
-def get_month_array(num_timesteps: int, row: pd.Series) -> np.ndarray:
-    start_date, end_date = datetime.strptime(
-        row.start_date, "%Y-%m-%d"
-    ), datetime.strptime(row.end_date, "%Y-%m-%d")
+def get_buffered_window_of_interest(
+    window_of_interest: List[str],
+    buffer: int = 3,
+    compositing_window: Literal["dekad", "monthly"] = "dekad",
+):
+    start_date = _get_correct_date(
+        pd.to_datetime(window_of_interest[0]), compositing_window=compositing_window
+    )
+    end_date = _get_correct_date(
+        pd.to_datetime(window_of_interest[1]), compositing_window=compositing_window
+    )
+    buffer_days = buffer * 10 if compositing_window == "dekad" else buffer * 30
 
-    # Calculate the step size for 10-day intervals and create a list of dates
-    step = int((end_date - start_date).days / (num_timesteps - 1))
-    date_vector = [start_date + timedelta(days=i * step) for i in range(num_timesteps)]
+    start_buffer_date = start_date - pd.Timedelta(days=buffer_days + 1)
+    end_buffer_date = end_date + pd.Timedelta(days=buffer_days + 1)
 
-    # Ensure last date is not beyond the end date
-    if date_vector[-1] > end_date:
-        date_vector[-1] = end_date
-
-    return np.array([d.month - 1 for d in date_vector])
+    return [
+        start_buffer_date.strftime("%Y-%m-%d"),
+        end_buffer_date.strftime("%Y-%m-%d"),
+    ]
 
 
-def load_dataset(files_root_dir, num_timesteps=36, no_data_value=65535):
+def window_of_interest_from_valid_date(
+    valid_dates: List[str],
+    buffer: int = 3,
+    compositing_window: Literal["dekad", "monthly"] = "dekad",
+):
+    start_dates, end_dates = [], []
+    for date in valid_dates:
+        curr_window_of_interest = [date, date]
+        start_date, end_date = get_buffered_window_of_interest(
+            curr_window_of_interest,
+            buffer=buffer,
+            compositing_window=compositing_window,
+        )
+        start_dates.append(start_date)
+        end_dates.append(end_date)
+    return [min(start_dates), max(end_dates)]
+
+
+def out_window_to_nodata(
+    df: pd.DataFrame, window_of_interest: List[str], no_data_value: int = 65535
+):
+    bands = [
+        "S1-SIGMA0-VV",
+        "S1-SIGMA0-VH",
+        "S2-L2A-B02",
+        "S2-L2A-B03",
+        "S2-L2A-B04",
+        "S2-L2A-B05",
+        "S2-L2A-B06",
+        "S2-L2A-B07",
+        "S2-L2A-B08",
+        "S2-L2A-B8A",
+        "S2-L2A-B11",
+        "S2-L2A-B12",
+        "AGERA5-PRECIP",
+        "AGERA5-TMEAN",
+        "slope",
+        "elevation",
+    ]
+    # check that bands are present in the dataframe
+    existing_bands = [b for b in bands if b in df.columns]
+
+    cutoff_start_date = pd.to_datetime(window_of_interest[0])
+    cutoff_end_date = pd.to_datetime(window_of_interest[1])
+    # Identify rows whose date is outside the window of interest
+    df["timestamp_datetime"] = pd.to_datetime(df.timestamp.dt.strftime("%Y-%m-%d"))
+    outside_range = ~df["timestamp_datetime"].between(
+        cutoff_start_date, cutoff_end_date
+    )
+    # Assign the fixed value to the band columns for rows outside the range
+    df.loc[outside_range, existing_bands] = no_data_value
+    return df
+
+
+def extract_window_of_interest(
+    df: pd.DataFrame, window_of_interest: List[str], buffer: Optional[int] = None
+):
+    df_filtered = df.copy()
+    df_filtered["timestamp_datetime"] = pd.to_datetime(
+        df_filtered.timestamp.dt.strftime("%Y-%m-%d")
+    )
+    if buffer is not None:
+        window_of_interest = get_buffered_window_of_interest(
+            window_of_interest, buffer=buffer
+        )
+    cutoff_start_date = pd.to_datetime(window_of_interest[0])
+    cutoff_end_date = pd.to_datetime(window_of_interest[1])
+    df_filtered = df_filtered[
+        (df_filtered.timestamp_datetime >= cutoff_start_date)
+        & (df_filtered.timestamp_datetime <= cutoff_end_date)
+    ]
+
+    # replace start and end date with the cutoff dates and convert timestamp to string
+    df_filtered.drop(columns=["timestamp_datetime"], inplace=True)
+    df_filtered["start_date"] = window_of_interest[0]
+    df_filtered["end_date"] = window_of_interest[1]
+
+    return df_filtered
+
+
+def load_dataset(
+    files_root_dir: str,
+    window_of_interest: List[str] = [""],
+    use_valid_time: bool = False,
+    num_ts: int = 36,
+    mask_out_of_window: bool = False,
+    buffer_window: int = 0,
+    no_data_value: int = 65535,
+    composite_window: Literal["dekad", "monthly"] = "dekad",
+):
+
     files = list(Path(files_root_dir).glob("*/*/*.geoparquet"))
     df_list = []
-    corrupted = []
+
     for f in tqdm(files):
         _data = pd.read_parquet(f, engine="fastparquet")
-        if not all(
-            item in _data.columns for item in ["lat", "lon", "start_date", "end_date"]
-        ):
-            corrupted.append(f)
-            continue
         _ref_id = str(f).split("/")[-2].split("=")[-1]
         _data["ref_id"] = _ref_id
-        _data_pivot = process_parquet(_data, num_timesteps=num_timesteps)
+        # if no window of interest is provided, use the original date column to create a window of interest
+        if (
+            (window_of_interest == [""])
+            and ("original_date" in _data.columns)
+            and use_valid_time
+        ):
+            window_of_interest = window_of_interest_from_valid_date(
+                _data["original_date"].unique().tolist(),
+                buffer=num_ts // 2,
+                compositing_window=composite_window,
+            )
+        if window_of_interest != [""]:
+            # whether to mask out of window data with no_data_value
+            if mask_out_of_window:
+                _data = out_window_to_nodata(
+                    _data, window_of_interest, no_data_value=no_data_value
+                )
+            # extend the window of interest by buffering it with a a number of buffer dates before and after indicated by buffer_window
+            if buffer_window > 0:
+                window_of_interest = get_buffered_window_of_interest(
+                    window_of_interest,
+                    buffer=buffer_window,
+                    compositing_window=composite_window,
+                )
+            # filter data to only include data within the window of interest
+            _data = extract_window_of_interest(_data, window_of_interest)
+
+        _data_pivot = process_parquet(_data)
         _data_pivot.reset_index(inplace=True)
         df_list.append(_data_pivot)
     df = pd.concat(df_list)
