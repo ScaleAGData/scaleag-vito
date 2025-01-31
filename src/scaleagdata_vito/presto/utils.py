@@ -6,7 +6,7 @@ import torch
 from loguru import logger
 from prometheo.datasets.scaleag import ScaleAgDataset
 from prometheo.models.presto.wrapper import PretrainedPrestoWrapper, dataset_to_model
-from prometheo.predictors import to_torchtensor
+from prometheo.predictors import collate_fn, to_torchtensor
 from prometheo.utils import device
 from sklearn.metrics import (
     classification_report,
@@ -79,11 +79,13 @@ def evaluate_finetuned_model(
     batch_size: int = 32,
 ):
     # Construct the dataloader
+
     test_dl = DataLoader(
         test_ds,
         batch_size=batch_size,
         shuffle=False,
         num_workers=num_workers,
+        collate_fn=collate_fn,
     )
 
     logger.info(f"Evaluating the finetuned model on {test_ds.task_type} task")
@@ -124,6 +126,7 @@ def evaluate_downstream_model(
         batch_size=batch_size,
         shuffle=False,
         num_workers=num_workers,
+        collate_fn=collate_fn,
     )
     logger.info(f"Evaluating the finetuned model on {test_ds.task_type} task")
     # get encodings from Presto and predict and evaluate with downstream model

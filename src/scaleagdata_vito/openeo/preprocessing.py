@@ -277,7 +277,7 @@ def precomposited_datacube_METEO(
     connection: Connection,
     spatial_extent: SpatialContext,
     temporal_extent: TemporalContext,
-    period: str = "decad",
+    period: str = "dekad",
 ) -> DataCube:
     """Extract the precipitation and temperature AGERA5 data from a
     pre-composited and pre-processed collection. The data is stored in the
