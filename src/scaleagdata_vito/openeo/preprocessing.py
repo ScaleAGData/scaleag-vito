@@ -295,7 +295,7 @@ def precomposited_datacube_METEO(
     if period == "dekad":
         # Dekadal composited METEO data
         cube = connection.load_stac(
-            "https://s3.waw3-1.cloudferro.com/swift/v1/agera_10d/stac/collection.json",  ####
+            "https://stac.openeo.vito.be/collections/agera5_dekad",  ####
             spatial_extent=spatial_extent,
             temporal_extent=temporal_extent,
             bands=["precipitation-flux", "temperature-mean"],
@@ -303,7 +303,7 @@ def precomposited_datacube_METEO(
     elif period == "month":
         # Monthly composited METEO data
         cube = connection.load_stac(
-            "https://s3.waw3-1.cloudferro.com/swift/v1/agera/stac/collection.json",
+            "https://stac.openeo.vito.be/collections/agera5_monthly",
             spatial_extent=spatial_extent,
             temporal_extent=temporal_extent,
             bands=["precipitation-flux", "temperature-mean"],
