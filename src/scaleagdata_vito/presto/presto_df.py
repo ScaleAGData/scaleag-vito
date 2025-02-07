@@ -1,7 +1,6 @@
 import logging
-from datetime import datetime
 from pathlib import Path
-from typing import List, Literal, Optional
+from typing import List, Literal, Optional, Union
 
 import numpy as np
 import pandas as pd
@@ -113,7 +112,7 @@ class DataFrameValidator:
         df_wide: pd.DataFrame, required_min_timesteps: int
     ) -> pd.DataFrame:
         samples_with_too_few_ts = (
-            df_wide["available_timesteps"] < required_min_timesteps
+            df_wide["available_timesteps"] < required_min_timesteps // 2
         )
         if samples_with_too_few_ts.sum() > 0:
             logger.warning(
@@ -203,16 +202,14 @@ class TimeSeriesProcessor:
         df_long: pd.DataFrame, freq: str, index_columns: List[str]
     ) -> pd.DataFrame:
         def get_expected_dates(start_date, end_date, freq):
-            start_date = _get_correct_date(
-                pd.to_datetime(start_date), compositing_window=freq
-            )
-            end_date = _get_correct_date(
-                pd.to_datetime(end_date), compositing_window=freq
-            )
-            date_array = []
-            while start_date <= end_date:
-                date_array.append(start_date)
-                start_date = _get_following_date(start_date, compositing_window=freq)
+            start_date = _get_correct_date(start_date, compositing_window=freq)
+            end_date = _get_correct_date(end_date, compositing_window=freq)
+            if freq == "dekad":
+                date_array = _get_dekadal_dates(start_date, end_date)
+            elif freq == "month":
+                date_array = _get_monthly_dates(start_date, end_date)
+            else:
+                raise NotImplementedError(f"Frequency {freq} not supported")
             return pd.DatetimeIndex(date_array)
 
         def fill_sample(sample_df):
@@ -489,6 +486,7 @@ def process_parquet(
     df["timestamp_ind"] = df.groupby("sample_id")["timestamp"].rank().astype(int) - 1
 
     if use_valid_time:
+        df["valid_time"] = df["valid_time"].astype("datetime64[ns]")
         df = processor.calculate_valid_position(df)
         index_columns.append("valid_position")
         df["valid_position_diff"] = df["timestamp_ind"] - df["valid_position"]
@@ -514,6 +512,7 @@ def process_parquet(
     df_pivot = ColumnProcessor.add_band_suffix(df_pivot)
 
     if use_valid_time:
+        df_pivot["valid_time"] = df_pivot["valid_time"].astype("datetime64[ns]")
         df_pivot["year"] = df_pivot["valid_time"].dt.year
         df_pivot["valid_time"] = df_pivot["valid_time"].dt.date.astype(str)
         df_pivot = validator.check_faulty_samples(df_pivot, min_edge_buffer)
@@ -528,46 +527,60 @@ def process_parquet(
     return df_pivot
 
 
-def _get_following_date(
-    dt_in: pd.Timestamp, compositing_window: Literal["dekad", "month"] = "dekad"
-):
-    """
-    Calculate the following date based on the given compositing window.
-    Args:
-        dt_in (datetime): The input date.
-    Returns:
-        datetime: The calculated following date.
-    Raises:
-        ValueError: f the compositing window is not "dekad" or "month".
-    """
+def _get_dekadal_dates(start_date: str, end_date: str):
 
-    if compositing_window == "dekad":
-        if dt_in.day < 21:
-            return datetime(dt_in.year, dt_in.month, dt_in.day + 10, 0, 0, 0)
+    start_date_ = np.datetime64(start_date, "D")
+    end_date_ = np.datetime64(end_date, "D")
+
+    # Extract year, month, and day
+    year = start_date_.astype("object").year
+    month = start_date_.astype("object").month
+    day = start_date_.astype("object").day
+
+    date_vector = [start_date_]
+    while date_vector[-1] != end_date_:
+        if day < 21:
+            day += 10
+            date_vector.append(np.datetime64(f"{year}-{month:02d}-{day}"))
         else:
-            month = dt_in.month + 1 if dt_in.month < 12 else 1
-            year = dt_in.year + 1 if month == 1 else dt_in.year
-            return datetime(year, month, 1, 0, 0, 0)
-    elif compositing_window == "month":
-        month = dt_in.month + 1 if dt_in.month < 12 else 1
-        year = dt_in.year + 1 if month == 1 else dt_in.year
-        return datetime(year, month, 1, 0, 0, 0)
-    else:
-        raise ValueError(f"Unknown compositing window: {compositing_window}")
+            month = month + 1 if month < 12 else 1
+            year = year + 1 if month == 1 else year
+            day = 1
+            date_vector.append(np.datetime64(f"{year}-{month:02d}-01"))
+    return date_vector
+
+
+def _get_monthly_dates(start_date: str, end_date: str):
+    # truncate to month precision
+    start_month = np.datetime64(start_date, "M")
+    end_month = np.datetime64(end_date, "M")  # Truncate to month start
+    date_vector = np.arange(start_month, end_month + 1, dtype="datetime64[M]").astype(
+        "datetime64[D]"
+    )
+    return date_vector
 
 
 def _get_correct_date(
-    dt_in: pd.Timestamp, compositing_window: Literal["dekad", "month"] = "dekad"
-):
+    dt_in: str, compositing_window: Literal["dekad", "month"] = "dekad"
+) -> np.datetime64:
+    """
+    Determine the correct date based on the input date and compositing window.
+    """
+
+    # Extract year, month, and day
+    year = np.datetime64(dt_in, "D").astype("object").year
+    month = np.datetime64(dt_in, "D").astype("object").month
+    day = np.datetime64(dt_in, "D").astype("object").day
+
     if compositing_window == "dekad":
-        if dt_in.day <= 10:
-            correct_date = datetime(dt_in.year, dt_in.month, 1, 0, 0, 0)
-        if dt_in.day >= 11 and dt_in.day <= 20:
-            correct_date = datetime(dt_in.year, dt_in.month, 11, 0, 0, 0)
-        if dt_in.day >= 21:
-            correct_date = datetime(dt_in.year, dt_in.month, 21, 0, 0, 0)
+        if day <= 10:
+            correct_date = np.datetime64(f"{year}-{month:02d}-01")
+        elif 11 <= day <= 20:
+            correct_date = np.datetime64(f"{year}-{month:02d}-11")
+        else:
+            correct_date = np.datetime64(f"{year}-{month:02d}-21")
     elif compositing_window == "month":
-        correct_date = datetime(dt_in.year, dt_in.month, 1, 0, 0, 0)
+        correct_date = np.datetime64(f"{year}-{month:02d}-01")
     else:
         raise ValueError(f"Unknown compositing window: {compositing_window}")
 
@@ -580,25 +593,25 @@ def get_buffered_window_of_interest(
     compositing_window: Literal["dekad", "month"] = "dekad",
 ):
     start_date = _get_correct_date(
-        pd.to_datetime(window_of_interest[0]), compositing_window=compositing_window
+        window_of_interest[0], compositing_window=compositing_window
     )
     end_date = _get_correct_date(
-        pd.to_datetime(window_of_interest[1]), compositing_window=compositing_window
+        window_of_interest[1], compositing_window=compositing_window
     )
     buffer_days = buffer * 10 if compositing_window == "dekad" else buffer * 30
 
-    start_buffer_date = start_date - pd.Timedelta(days=buffer_days + 1)
-    end_buffer_date = end_date + pd.Timedelta(days=buffer_days + 1)
+    start_buffer_date = start_date - np.timedelta64(buffer_days + 1, "D")
+    end_buffer_date = end_date + np.timedelta64(buffer_days + 1, "D")
 
     return [
-        start_buffer_date.strftime("%Y-%m-%d"),
-        end_buffer_date.strftime("%Y-%m-%d"),
+        np.datetime_as_string(start_buffer_date, unit="D"),
+        np.datetime_as_string(end_buffer_date, unit="D"),
     ]
 
 
 def window_of_interest_from_valid_date(
     valid_dates: List[str],
-    buffer: int = 3,
+    buffer: int,
     compositing_window: Literal["dekad", "month"] = "dekad",
 ):
     start_dates, end_dates = [], []
@@ -638,15 +651,18 @@ def out_window_to_nodata(
     # check that bands are present in the dataframe
     existing_bands = [b for b in bands if b in df.columns]
 
-    cutoff_start_date = pd.to_datetime(window_of_interest[0])
-    cutoff_end_date = pd.to_datetime(window_of_interest[1])
-    # Identify rows whose date is outside the window of interest
-    df["timestamp_datetime"] = pd.to_datetime(df.timestamp.dt.strftime("%Y-%m-%d"))
-    outside_range = ~df["timestamp_datetime"].between(
-        cutoff_start_date, cutoff_end_date
+    # Convert timestamps and window_of_interest to np.datetime64
+    cutoff_start_date = np.datetime64(window_of_interest[0], "D")
+    cutoff_end_date = np.datetime64(window_of_interest[1], "D")
+
+    # Identify rows outside the window of interest
+    outside_range = (df["timestamp"] < cutoff_start_date) | (
+        df["timestamp"] > cutoff_end_date
     )
-    # Assign the fixed value to the band columns for rows outside the range
+
+    # Assign no_data_value to the relevant bands for rows outside the range
     df.loc[outside_range, existing_bands] = no_data_value
+
     return df
 
 
@@ -654,34 +670,33 @@ def extract_window_of_interest(
     df: pd.DataFrame, window_of_interest: List[str], buffer: Optional[int] = None
 ):
     df_filtered = df.copy()
-    df_filtered["timestamp_datetime"] = pd.to_datetime(
-        df_filtered.timestamp.dt.strftime("%Y-%m-%d")
-    )
+
     if buffer is not None:
         window_of_interest = get_buffered_window_of_interest(
             window_of_interest, buffer=buffer
         )
-    cutoff_start_date = pd.to_datetime(window_of_interest[0])
-    cutoff_end_date = pd.to_datetime(window_of_interest[1])
+
+    # Convert timestamps and window_of_interest to np.datetime64
+    cutoff_start_date = np.datetime64(window_of_interest[0], "D")
+    cutoff_end_date = np.datetime64(window_of_interest[1], "D")
+
+    # Filter rows within the window of interest
     df_filtered = df_filtered[
-        (df_filtered.timestamp_datetime >= cutoff_start_date)
-        & (df_filtered.timestamp_datetime <= cutoff_end_date)
+        (df_filtered["timestamp"] >= cutoff_start_date)
+        & (df_filtered["timestamp"] <= cutoff_end_date)
     ]
 
-    # replace start and end date with the cutoff dates and convert timestamp to string
-    df_filtered.drop(columns=["timestamp_datetime"], inplace=True)
+    # Assign start and end dates
     df_filtered["start_date"] = window_of_interest[0]
     df_filtered["end_date"] = window_of_interest[1]
-
     return df_filtered
 
 
 def load_dataset(
     files_root_dir: str,
-    window_of_interest: List[str] = [""],
+    window_of_interest: Optional[Union[List[str], None]] = None,
     use_valid_time: bool = False,
     required_min_timesteps: int = 36,
-    mask_out_of_window: bool = False,
     buffer_window: int = 0,
     no_data_value: int = 65535,
     composite_window: Literal["dekad", "month"] = "dekad",
@@ -694,24 +709,22 @@ def load_dataset(
         _data = pd.read_parquet(f, engine="fastparquet")
         _ref_id = str(f).split("/")[-2].split("=")[-1]
         _data["ref_id"] = _ref_id
+        _data["timestamp"] = _data["timestamp"].dt.tz_localize(None)  # .dt.floor("D")
         # if no window of interest is provided, use the original date column to create a window of interest
         if (
-            (window_of_interest == [""])
+            (window_of_interest is None)
             and ("original_date" in _data.columns)
             and use_valid_time
         ):
+            assert (
+                required_min_timesteps > 0
+            ), "required_min_timesteps must be > 0 when window_of_interest is not provided"
             window_of_interest = window_of_interest_from_valid_date(
                 _data["original_date"].unique().tolist(),
                 buffer=required_min_timesteps // 2,
                 compositing_window=composite_window,
             )
-        if window_of_interest != [""]:
-            # whether to mask out of window data with no_data_value
-            if mask_out_of_window:
-                _data = out_window_to_nodata(
-                    _data, window_of_interest, no_data_value=no_data_value
-                )
-            # extend the window of interest by buffering it with a a number of buffer dates before and after indicated by buffer_window
+        if window_of_interest is not None:
             if buffer_window > 0:
                 window_of_interest_buffered = get_buffered_window_of_interest(
                     window_of_interest,
