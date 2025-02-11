@@ -1,4 +1,5 @@
 import logging
+import sys
 from pathlib import Path
 from typing import List, Literal, Optional, Union
 
@@ -6,6 +7,7 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
+sys.path.append("/home/vito/millig/gio/prometheo/")
 logger = logging.getLogger("__main__")
 
 STATIC_FEATURES = ["DEM-alt-20m", "DEM-slo-20m", "lat", "lon"]
