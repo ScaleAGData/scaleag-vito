@@ -3,7 +3,6 @@ requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.sdist]
-packages = ["src/scaleagdata_vito"]
 exclude = [
   "/dist",
   "/notebooks",
@@ -11,6 +10,9 @@ exclude = [
   "/bin",
   "/tests",
 ]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/scaleagdata_vito"]
 
 [tool.hatch.version]
 path = "src/scaleagdata_vito/_version.py"
