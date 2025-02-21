@@ -3,9 +3,11 @@
 import logging
 import os
 from datetime import datetime
+from enum import Enum
+from functools import partial
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-from typing import List, Optional
+from typing import Callable, List, Optional
 
 import geojson
 import geopandas as gpd
@@ -13,7 +15,11 @@ import openeo
 import pandas as pd
 import pystac
 import requests
+from openeo.rest import OpenEoApiError, OpenEoApiPlainError, OpenEoRestError
 from openeo_gfmap import Backend, BackendContext, FetchType, TemporalContext
+from openeo_gfmap.backend import cdse_connection
+from openeo_gfmap.manager.job_manager import GFMAPJobManager
+from openeo_gfmap.manager.job_splitters import split_job_s2grid
 from tqdm import tqdm
 
 from scaleagdata_vito.openeo.preprocessing import scaleag_preprocessed_inputs
@@ -28,6 +34,12 @@ pipeline_log.addHandler(stream_handler)
 
 formatter = logging.Formatter("%(asctime)s|%(name)s|%(levelname)s:  %(message)s")
 stream_handler.setFormatter(formatter)
+
+
+class ExtractionCollection(Enum):
+    """Collections that can be extracted in the extraction scripts."""
+
+    SAMPLE_SCALEAG = "SAMPLE_SCALEAG"
 
 
 # Exclude the other loggers from other libraries
@@ -141,6 +153,9 @@ def create_job_dataframe_sample_scaleag(
             # 9 months before and after the valid time
             start_date = min_time - pd.Timedelta(days=275)
             end_date = max_time + pd.Timedelta(days=275)
+
+            # set again as string so that it is json serializable
+            job["original_date"] = job.original_date.dt.strftime("%Y-%m-%d")
         else:
             start_date = datetime.strptime(start_date_user, "%Y-%m-%d")
             end_date = datetime.strptime(end_date_user, "%Y-%m-%d")
@@ -156,9 +171,6 @@ def create_job_dataframe_sample_scaleag(
 
         job["start_date"] = start_date
         job["end_date"] = end_date
-
-        # # set again as string so that it is json serializable
-        job["original_date"] = job.original_date.dt.strftime("%Y-%m-%d")
 
         variables = {
             "backend_name": backend.value,
@@ -281,6 +293,242 @@ def post_job_action_sample_scaleag(
         gdf.to_parquet(item_asset_path, index=False)
 
     return job_items
+
+
+def load_dataframe(df_path: Path) -> gpd.GeoDataFrame:
+    """Load the input dataframe from the given path."""
+    pipeline_log.info("Loading input dataframe from %s.", df_path)
+
+    if df_path.name.endswith(".geoparquet"):
+        return gpd.read_parquet(df_path)
+    else:
+        return gpd.read_file(df_path)
+
+
+def prepare_job_dataframe(
+    input_df: gpd.GeoDataFrame,
+    collection: ExtractionCollection,
+    max_locations: int,
+    backend: Backend,
+    start_date: str,
+    end_date: str,
+    composite_window: str,
+) -> gpd.GeoDataFrame:
+    """Prepare the job dataframe to extract the data from the given input
+    dataframe."""
+    pipeline_log.info("Preparing the job dataframe.")
+    pipeline_log.info("Performing splitting by s2 grid...")
+    split_dfs = split_job_s2grid(input_df, max_points=max_locations)
+
+    pipeline_log.info("Dataframes split to jobs, creating the job dataframe...")
+    collection_switch: dict[ExtractionCollection, Callable] = {
+        ExtractionCollection.SAMPLE_SCALEAG: create_job_dataframe_sample_scaleag,
+    }
+
+    create_job_dataframe_fn = collection_switch.get(
+        collection,
+        lambda: (_ for _ in ()).throw(
+            ValueError(f"Collection {collection} not supported.")
+        ),
+    )
+
+    job_df = create_job_dataframe_fn(
+        backend, split_dfs, start_date, end_date, composite_window
+    )
+    pipeline_log.info("Job dataframe created with %s jobs.", len(job_df))
+
+    return job_df
+
+
+def setup_extraction_functions(
+    collection: ExtractionCollection,
+    memory: str,
+    python_memory: str,
+    max_executors: int,
+) -> tuple[Callable, Callable, Callable]:
+    """Setup the datacube creation, path generation and post-job action
+    functions for the given collection. Returns a tuple of three functions:
+    1. The datacube creation function
+    2. The output path generation function
+    3. The post-job action function
+    """
+
+    datacube_creation = {
+        ExtractionCollection.SAMPLE_SCALEAG: partial(
+            create_job_sample_scaleag,
+            executor_memory=memory,
+            python_memory=python_memory,
+            max_executors=max_executors,
+        ),
+    }
+
+    datacube_fn = datacube_creation.get(
+        collection,
+        lambda: (_ for _ in ()).throw(
+            ValueError(f"Collection {collection} not supported.")
+        ),
+    )
+
+    path_fns = {
+        ExtractionCollection.SAMPLE_SCALEAG: partial(
+            generate_output_path_sample_scaleag
+        ),
+    }
+
+    path_fn = path_fns.get(
+        collection,
+        lambda: (_ for _ in ()).throw(
+            ValueError(f"Collection {collection} not supported.")
+        ),
+    )
+
+    post_job_actions = {
+        ExtractionCollection.SAMPLE_SCALEAG: partial(
+            post_job_action_sample_scaleag,
+        ),
+    }
+
+    post_job_fn = post_job_actions.get(
+        collection,
+        lambda: (_ for _ in ()).throw(
+            ValueError(f"Collection {collection} not supported.")
+        ),
+    )
+
+    return datacube_fn, path_fn, post_job_fn
+
+
+def manager_main_loop(
+    manager: GFMAPJobManager,
+    collection: ExtractionCollection,
+    job_df: gpd.GeoDataFrame,
+    datacube_fn: Callable,
+    tracking_df_path: Path,
+) -> None:
+    """Main loop for the job manager, re-running it whenever an uncatched
+    OpenEO exception occurs, and notifying the user through the Pushover API
+    whenever the extraction start or an error occurs.
+    """
+    latest_exception_time = None
+    exception_counter = 0
+
+    while True:
+        pipeline_log.info("Launching the jobs manager.")
+        try:
+            manager.run_jobs(job_df, datacube_fn, tracking_df_path)
+            return
+        except (
+            OpenEoApiPlainError,
+            OpenEoApiError,
+            OpenEoRestError,
+            requests.exceptions.ChunkedEncodingError,
+            requests.exceptions.HTTPError,
+        ) as e:
+            pipeline_log.exception("An error occurred during the extraction.\n%s", e)
+            if latest_exception_time is None:
+                latest_exception_time = pd.Timestamp.now()
+                exception_counter += 1
+            # 30 minutes between each exception
+            elif (datetime.now() - latest_exception_time).seconds < 1800:
+                exception_counter += 1
+            else:
+                latest_exception_time = None
+                exception_counter = 0
+
+            if exception_counter >= 3:
+                pipeline_log.error(
+                    "Too many OpenEO exceptions occurred in a short amount of time, stopping the extraction..."
+                )
+                raise e
+        except Exception as e:
+            pipeline_log.exception(
+                "An unexpected error occurred during the extraction.\n%s", e
+            )
+            raise e
+
+
+def extract(args):
+    # Fetches values and setups hardocded values
+    collection = args.collection
+    max_locations_per_job = args.max_locations
+    backend = Backend.CDSE
+
+    if not args.output_folder.is_dir():
+        args.output_folder.mkdir(parents=True, exist_ok=True)
+        # raise ValueError(f"Output folder {args.output_folder} does not exist.")
+
+    tracking_df_path = Path(args.output_folder) / "job_tracking.csv"
+
+    # Load the input dataframe and build the job dataframe
+    input_df = load_dataframe(args.input_df)
+    input_df["sample_id"] = input_df[args.unique_id_column]
+    assert input_df["sample_id"].is_unique, "The unique ID column is not unique."
+
+    job_df = None
+    if not tracking_df_path.exists():
+        job_df = prepare_job_dataframe(
+            input_df,
+            collection,
+            max_locations_per_job,
+            backend,
+            args.start_date,
+            args.end_date,
+            args.composite_window,
+        )
+
+    # Setup the extraction functions
+    pipeline_log.info("Setting up the extraction functions.")
+    datacube_fn, path_fn, post_job_fn = setup_extraction_functions(
+        collection,
+        args.memory,
+        args.python_memory,
+        args.max_executors,
+    )
+
+    # Initialize and setups the job manager
+    pipeline_log.info("Initializing the job manager.")
+
+    job_manager = GFMAPJobManager(
+        output_dir=args.output_folder,
+        output_path_generator=path_fn,
+        post_job_action=post_job_fn,
+        poll_sleep=60,
+        n_threads=4,
+        restart_failed=args.restart_failed,
+        stac_enabled=False,
+    )
+
+    job_manager.add_backend(
+        Backend.CDSE.value,
+        cdse_connection,
+        parallel_jobs=args.parallel_jobs,
+    )
+
+    manager_main_loop(job_manager, collection, job_df, datacube_fn, tracking_df_path)
+
+    pipeline_log.info("Extraction completed successfully.")
+
+
+def generate_input_for_extractions(input_dict):
+    job_inputs = pd.Series(
+        {
+            "collection": ExtractionCollection.SAMPLE_SCALEAG,
+            "output_folder": Path(input_dict["output_folder"]),
+            "input_df": Path(input_dict["input_df"]),
+            "start_date": input_dict["start_date"],
+            "end_date": input_dict["end_date"],
+            "max_locations": 50,
+            "memory": "1800m",
+            "python_memory": "1900m",
+            "max_executors": 22,
+            "parallel_jobs": 2,
+            "restart_failed": True,
+            "unique_id_column": input_dict["unique_id_column"],
+            "composite_window": input_dict["composite_window"],
+        }
+    )
+
+    return job_inputs
 
 
 def generate_extraction_job_command(
