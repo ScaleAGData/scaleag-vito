@@ -435,7 +435,7 @@ class ScaleAgInferenceDataset(Dataset):
             "meteo": meteo,
             "dem": dem,
             "latlon": latlon,
-            # "timestamps": self.get_date_array(inarr, num_timesteps),
+            "timestamps": self.get_date_array(inarr, num_timesteps),
         }
         return Predictors(**predictors_dict)
         
@@ -462,7 +462,7 @@ class ScaleAgInferenceDataset(Dataset):
 
         return correct_date
 
-    def _get_dekadal_dates(self, start_date: np.datetime64):
+    def _get_dekadal_dates(self, start_date: np.datetime64, num_timesteps: int):
 
         # Extract year, month, and day
         year = start_date.astype("object").year
@@ -470,7 +470,7 @@ class ScaleAgInferenceDataset(Dataset):
         day = start_date.astype("object").day
 
         days, months, years = [day], [month], [year]
-        while len(days) < self.num_timesteps:
+        while len(days) < num_timesteps:
             if day < 21:
                 day += 10
             else:
@@ -482,34 +482,33 @@ class ScaleAgInferenceDataset(Dataset):
             years.append(year)
         return days, months, years
 
-    def _get_monthly_dates(self, start_date: str):
+    def _get_monthly_dates(self, start_date: str, num_timesteps: int):
         # truncate to month precision
         start_month = np.datetime64(start_date, "M")
         # generate date vector based on the number of timesteps
         date_vector = start_month + np.arange(
-            self.num_timesteps, dtype="timedelta64[M]"
+            num_timesteps, dtype="timedelta64[M]"
         )
 
         # generate day, month and year vectors with numpy operations
-        days = np.ones(self.num_timesteps, dtype=int)
+        days = np.ones(num_timesteps, dtype=int)
         months = (date_vector.astype("datetime64[M]").astype(int) % 12) + 1
         years = (date_vector.astype("datetime64[Y]").astype(int)) + 1970
         return days, months, years
 
-    def get_date_array(self, inarr: xr.DataArray) -> np.ndarray:
+    def get_date_array(self, inarr: xr.DataArray, num_timesteps: int) -> np.ndarray:
         """
         Generate an array of dates based on the specified compositing window.
         """
         # adjust start date depending on the compositing window
-        loc_date = inarr.t.values[0]
-        start_date = np.datetime64(loc_date, "D") 
-        start_date = self._get_correct_date(row.start_date)
+        date = str(inarr.t.values[0].astype('datetime64[D]'))
+        start_date = self._get_correct_date(date)
 
         # Generate date vector depending on the compositing window
         if self.compositing_window == "dekad":
-            days, months, years = self._get_dekadal_dates(start_date)
+            days, months, years = self._get_dekadal_dates(start_date, num_timesteps)
         elif self.compositing_window == "month":
-            days, months, years = self._get_monthly_dates(start_date)
+            days, months, years = self._get_monthly_dates(start_date, num_timesteps)
         else:
             raise ValueError(f"Unknown compositing window: {self.compositing_window}")
 
