@@ -3,8 +3,12 @@ are interracting with the methods here are defined in the `worldcereal.job`
 sub-module.
 """
 
-from typing import Optional
+from typing import Literal, Optional, Union
 
+import numpy as np
+import pandas as pd
+import torch
+import torch.nn as nn
 import xarray as xr
 from openeo import DataCube
 from openeo.udf import XarrayDataCube
@@ -15,9 +19,12 @@ from openeo_gfmap.features.feature_extractor import (
 )
 from openeo_gfmap.inference.model_inference import ModelInference, apply_model_inference
 from openeo_gfmap.preprocessing.scaling import compress_uint8, compress_uint16
+from prometheo.models.presto.wrapper import PretrainedPrestoWrapper
+from prometheo.predictors import collate_fn
 from pydantic import BaseModel
+from torch.utils.data import DataLoader
 
-from scaleagdata_vito.openeo.parameters import PostprocessParameters
+from scaleagdata_vito.presto.datasets_prometheo import ScaleAgInferenceDataset
 
 
 class ScaleAgRegressor(ModelInference):
@@ -98,224 +105,6 @@ class ScaleAgRegressor(ModelInference):
 
         return regression_da
     
-    
-class ScaleAgBinaryClassifier(ModelInference):
-    import numpy as np
-
-    def __init__(self):
-        super().__init__()
-
-        self.onnx_session = None
-
-    def dependencies(self) -> list:
-        return []  # Disable the dependencies from PIP install
-
-    def output_labels(self) -> list:
-        """
-        Returns the output labels for the classification.
-
-        LUT needs to be explicitly sorted here as openEO does
-        not guarantee the order of a json object being preserved when decoding
-        a process graph in the backend.
-        """
-        lut = self._parameters["lookup_table"]
-        lut_sorted = {k: v for k, v in sorted(lut.items(), key=lambda item: item[1])}
-        class_names = lut_sorted.keys()
-
-        return ["prediction", "probability"] + [
-            f"probability_{name}" for name in class_names
-        ]
-
-    def predict(self, inputs: np.ndarray) -> np.ndarray:
-        """
-        Predicts labels using the provided features array.
-
-        LUT needs to be explicitly sorted here as openEO does
-        not guarantee the order of a json object being preserved when decoding
-        a process graph in the backend.
-        """
-        import numpy as np
-
-        # Classes names to codes
-        lookup_table = self._parameters.get("lookup_table", None)
-
-        if lookup_table is None:
-            raise ValueError(
-                "Lookup table is not defined. Please provide lookup_table in the UDFs parameters."
-            )
-
-        lut_sorted = {
-            k: v for k, v in sorted(lookup_table.items(), key=lambda item: item[1])
-        }
-
-        if self.onnx_session is None:
-            raise ValueError("Model has not been loaded. Please load a model first.")
-
-        # Prepare input data for ONNX model
-        outputs = self.onnx_session.run(None, {"inputs": inputs})
-
-        # Extract classes as INTs and probability of winning class values
-        labels = np.zeros((len(outputs[0]),), dtype=np.uint16)
-        probabilities = np.zeros((len(outputs[0]),), dtype=np.uint8)
-        for i, (label, prob) in enumerate(zip(outputs[0], outputs[1])):
-            labels[i] = lut_sorted[label]
-            probabilities[i] = int(round(prob[label] * 100))
-
-        # Extract per class probabilities
-        output_probabilities = []
-        for output_px in outputs[1]:
-            output_probabilities.append(
-                [output_px[label] for label in lut_sorted.keys()]
-            )
-
-        output_probabilities = (
-            (np.array(output_probabilities) * 100).round().astype(np.uint8)
-        )
-
-        return np.hstack(
-            [labels[:, np.newaxis], probabilities[:, np.newaxis], output_probabilities]
-        ).transpose()
-
-    def execute(self, inarr: xr.DataArray) -> xr.DataArray:
-
-        if "classifier_url" not in self._parameters:
-            raise ValueError('Missing required parameter "classifier_url"')
-        classifier_url = self._parameters.get("classifier_url")
-        self.logger.info(f'Loading classifier model from "{classifier_url}"')
-
-        # shape and indices for output ("xy", "bands")
-        x_coords, y_coords = inarr.x.values, inarr.y.values
-        inarr = inarr.transpose("bands", "x", "y").stack(xy=["x", "y"]).transpose()
-
-        self.onnx_session = self.load_ort_session(classifier_url)
-
-        # Run catboost classification
-        self.logger.info("Catboost classification with input shape: %s", inarr.shape)
-        classification = self.predict(inarr.values)
-        self.logger.info("Classification done with shape: %s", inarr.shape)
-
-        output_labels = self.output_labels()
-
-        classification_da = xr.DataArray(
-            classification.reshape((len(output_labels), len(x_coords), len(y_coords))),
-            dims=["bands", "x", "y"],
-            coords={
-                "bands": output_labels,
-                "x": x_coords,
-                "y": y_coords,
-            },
-        )
-
-        return classification_da
-
-class ScaleAgMulticlassClassifier(ModelInference):
-    import numpy as np
-
-    def __init__(self):
-        super().__init__()
-
-        self.onnx_session = None
-
-    def dependencies(self) -> list:
-        return []  # Disable the dependencies from PIP install
-
-    def output_labels(self) -> list:
-        """
-        Returns the output labels for the classification.
-
-        LUT needs to be explicitly sorted here as openEO does
-        not guarantee the order of a json object being preserved when decoding
-        a process graph in the backend.
-        """
-        lut = self._parameters["lookup_table"]
-        lut_sorted = {k: v for k, v in sorted(lut.items(), key=lambda item: item[1])}
-        class_names = lut_sorted.keys()
-
-        return ["prediction", "probability"] + [
-            f"probability_{name}" for name in class_names
-        ]
-
-    def predict(self, inputs: np.ndarray) -> np.ndarray:
-        """
-        Predicts labels using the provided features array.
-
-        LUT needs to be explicitly sorted here as openEO does
-        not guarantee the order of a json object being preserved when decoding
-        a process graph in the backend.
-        """
-        import numpy as np
-
-        # Classes names to codes
-        lookup_table = self._parameters.get("lookup_table", None)
-
-        if lookup_table is None:
-            raise ValueError(
-                "Lookup table is not defined. Please provide lookup_table in the UDFs parameters."
-            )
-
-        lut_sorted = {
-            k: v for k, v in sorted(lookup_table.items(), key=lambda item: item[1])
-        }
-
-        if self.onnx_session is None:
-            raise ValueError("Model has not been loaded. Please load a model first.")
-
-        # Prepare input data for ONNX model
-        outputs = self.onnx_session.run(None, {"inputs": inputs})
-
-        # Extract classes as INTs and probability of winning class values
-        labels = np.zeros((len(outputs[0]),), dtype=np.uint16)
-        probabilities = np.zeros((len(outputs[0]),), dtype=np.uint8)
-        for i, (label, prob) in enumerate(zip(outputs[0], outputs[1])):
-            labels[i] = lut_sorted[label]
-            probabilities[i] = int(round(prob[label] * 100))
-
-        # Extract per class probabilities
-        output_probabilities = []
-        for output_px in outputs[1]:
-            output_probabilities.append(
-                [output_px[label] for label in lut_sorted.keys()]
-            )
-
-        output_probabilities = (
-            (np.array(output_probabilities) * 100).round().astype(np.uint8)
-        )
-
-        return np.hstack(
-            [labels[:, np.newaxis], probabilities[:, np.newaxis], output_probabilities]
-        ).transpose()
-
-    def execute(self, inarr: xr.DataArray) -> xr.DataArray:
-
-        if "classifier_url" not in self._parameters:
-            raise ValueError('Missing required parameter "classifier_url"')
-        classifier_url = self._parameters.get("classifier_url")
-        self.logger.info(f'Loading classifier model from "{classifier_url}"')
-
-        # shape and indices for output ("xy", "bands")
-        x_coords, y_coords = inarr.x.values, inarr.y.values
-        inarr = inarr.transpose("bands", "x", "y").stack(xy=["x", "y"]).transpose()
-
-        self.onnx_session = self.load_ort_session(classifier_url)
-
-        # Run catboost classification
-        self.logger.info("Catboost classification with input shape: %s", inarr.shape)
-        classification = self.predict(inarr.values)
-        self.logger.info("Classification done with shape: %s", inarr.shape)
-
-        output_labels = self.output_labels()
-
-        classification_da = xr.DataArray(
-            classification.reshape((len(output_labels), len(x_coords), len(y_coords))),
-            dims=["bands", "x", "y"],
-            coords={
-                "bands": output_labels,
-                "x": x_coords,
-                "y": y_coords,
-            },
-        )
-
-        return classification_da
 
 
 class FeaturesParameters(BaseModel):
@@ -339,7 +128,7 @@ class FeaturesParameters(BaseModel):
     compile_presto: bool
     
 
-class PrestoPredictor(PatchFeatureExtractor):
+class ScaleAgBinaryClassifier(PatchFeatureExtractor):
     """Feature extractor to use Presto model to compute per-pixel embeddings.
     This will generate a datacube with 128 bands, each band representing a
     feature from the Presto model.
@@ -371,8 +160,8 @@ class PrestoPredictor(PatchFeatureExtractor):
         "S2-L2A-B12": "B12",
         "S1-SIGMA0-VH": "VH",
         "S1-SIGMA0-VV": "VV",
-        "AGERA5-TMEAN": "temperature_2m",
-        "AGERA5-PRECIP": "total_precipitation",
+        "AGERA5-TMEAN": "temperature",
+        "AGERA5-PRECIP": "precipitation",
     }
 
     @functools.lru_cache(maxsize=6)
@@ -392,7 +181,7 @@ class PrestoPredictor(PatchFeatureExtractor):
     def output_labels(self) -> list:
         """Returns the output labels from this UDF, which is the output labels
         of the presto embeddings"""
-        return [f"presto_ft_{i}" for i in range(128)]
+        return ["predictions", "probabilities"]
 
     def evaluate_resolution(self, inarr: xr.DataArray) -> int:
         """Helper function to get the resolution in meters for
@@ -627,18 +416,7 @@ class PrestoPredictor(PatchFeatureExtractor):
 
         # Handle NaN values in Presto compatible way
         inarr = inarr.fillna(65535)
-
-        # # Add valid_date attribute to the input array if we need it and
-        # # it's not there. For now we take center timestamp in this case.
-        # use_valid_date_token = self._parameters.get("use_valid_date_token", False)
-        # if "valid_date" not in inarr.attrs:
-        #     if use_valid_date_token:
-        #         # Only log warning if we will use the valid_date token
-        #         self.logger.warning(
-        #             "No `valid_date` attribute found in input array. Taking center timestamp."
-        #         )
-        #     inarr.attrs["valid_date"] = inarr.t.values[6]
-
+        
         # Unzip de dependencies on the backend
         if not ignore_dependencies:
             self.logger.info("Unzipping dependencies")
@@ -649,8 +427,6 @@ class PrestoPredictor(PatchFeatureExtractor):
             self.logger.info("Appending dependencies")
             sys.path.append(str(deps_dir))
 
-        from scaleagdata_vito.presto.utils import predict_with_head
-
         if "slope" not in inarr.bands:
             # If 'slope' is not present we need to compute it here
             self.logger.warning("`slope` not found in input array. Computing ...")
@@ -660,18 +436,19 @@ class PrestoPredictor(PatchFeatureExtractor):
 
             inarr = xr.concat([inarr.astype("float32"), slope], dim="bands")
 
-        batch_size = self._parameters.get("batch_size", 256)
-        compile_presto = self._parameters.get("compile_presto", False)
-        self.logger.info(f"Compile presto: {compile_presto}")
-
         self.logger.info("Predicting with Fine-tuned Presto")
-        predictions = predict_with_head(
+        
+        # implement similar predictor to `predict_with_head` in the
+        # scaleagdata_vito.presto.utils.py file
+        
+        output = predict_with_ft_presto(
             inarr,
-            batch_size=batch_size,
-            model_url=presto_model_url,
-            compile_presto=compile_presto,
+            presto_url=presto_model_url,
+            task_type=self._parameters.get("task_type", "regression"),
+            num_outputs=self._parameters.get("num_outputs", None),
+            compositing_window=self._parameters.get("compositing_window", "dekad"),
         )
-        return predictions
+        return output
 
     def _execute(self, cube: XarrayDataCube, parameters: dict) -> XarrayDataCube:
         # Disable S1 rescaling (decompression) by default
@@ -684,62 +461,85 @@ class PrestoPredictor(PatchFeatureExtractor):
         return []
 
 
-def _scaleag_map(
-    inputs: DataCube,
-    temporal_extent: TemporalContext,
-    parameters: FeaturesParameters,
-    postprocess_parameters: PostprocessParameters,
-) -> DataCube:
-    """Method to produce cropland map from preprocessed inputs, using
-    a Presto feature extractor and a CatBoost classifier.
+def predict_with_ft_presto(
+    inarr: xr.DataArray,
+    presto_url: str,
+    task_type: Literal[ "regression", "binary", "multiclass"],
+    num_outputs: Optional[int] = None,
+    compositing_window: Literal["dekad", "month"] = "dekad",
+    batch_size: int = 8192,
+) -> Union[np.ndarray, xr.DataArray]:
 
-    Parameters
-    ----------
-    inputs : DataCube
-        preprocessed input cube
-    temporal_extent : TemporalContext
-        temporal extent of the input cube
-    cropland_parameters: CropLandParameters
-        Parameters for the cropland product inference pipeline
-    postprocess_parameters: PostprocessParameters
-        Parameters for the postprocessing
-    Returns
-    -------
-    DataCube
-        binary labels and probability
-    """
+    # Load the model based on the task type
+    from prometheo.models.presto.wrapper import PretrainedPrestoWrapper, load_pretrained
     
-    # Run model inference on inputs
-    classes = apply_model_inference(
-        model_inference_class=cropland_parameters.classifier,
-        cube=inputs,
-        parameters=parameters,
-        size=[
-            {"dimension": "x", "unit": "px", "value": 128},
-            {"dimension": "y", "unit": "px", "value": 128},
-            {"dimension": "t", "value": "P1D"},
-        ],
-        overlap=[
-            {"dimension": "x", "unit": "px", "value": 0},
-            {"dimension": "y", "unit": "px", "value": 0},
-        ],
+    if task_type == "regression":
+        finetuned_model = PretrainedPrestoWrapper(num_outputs=1, regression=True)
+    elif task_type == "binary":
+        finetuned_model = PretrainedPrestoWrapper(num_outputs=1, regression=False)
+    elif task_type == "multiclass":
+        finetuned_model = PretrainedPrestoWrapper(num_outputs=num_outputs, regression=False)
+       
+    finetuned_model = load_pretrained(
+        finetuned_model,
+        fine_tuned_model_url=presto_url,
     )
 
-    # Get rid of temporal dimension
-    classes = classes.reduce_dimension(dimension="t", reducer="mean")
+    presto_model = PrestoPredictor(
+        model=finetuned_model,
+        batch_size=batch_size,
+        task_type=task_type,
+        compositing_window=compositing_window,
+    )
+    # assert isinstance(inarr, xr.DataArray):
+    return presto_model.predict(inarr)
+    # else:
+    #     raise ValueError("Input data must be either xr.DataArray or pd.DataFrame")
+    
 
-    # Postprocess
-    if postprocess_parameters.enable:
-        if postprocess_parameters.save_intermediate:
-            classes = classes.save_result(
-                format="GTiff",
-                options=dict(
-                    filename_prefix=f"{WorldCerealProductType.CROPLAND.value}-raw_{temporal_extent.start_date}_{temporal_extent.end_date}"
-                ),
-            )
-        classes = _postprocess(classes, postprocess_parameters, lookup_table)
+class PrestoPredictor:
+    def __init__(self,
+                 model: PretrainedPrestoWrapper, 
+                 batch_size: int = 8192,
+                 task_type: Literal["regression", "binary", "multiclass"] = "regression",
+                 compositing_window: Literal["dekad", "month"] = "dekad"):
+        """
+        Initialize the PrestoFeatureExtractor with a Presto model.
 
-    # Cast to uint8
-    classes = compress_uint8(classes)
+        Args:
+            model (Presto): The Presto model used for feature extraction.
+            batch_size (int): Batch size for dataloader.
+        """
+        self.model = model
+        self.batch_size = batch_size
+        self.task_type = task_type
+        self.compositing_window = compositing_window
 
-    return classes
+    def predict(self, inarr: xr.DataArray) -> xr.DataArray:
+        dataset = ScaleAgInferenceDataset(inarr, compositing_window=self.compositing_window)
+        dl = DataLoader(
+            dataset,
+            batch_size=self.batch_size,
+            shuffle=False,
+            collate_fn=collate_fn,
+        )
+        all_preds, all_probs = [], []
+        self.model.eval()
+        for batch in dl:
+            with torch.no_grad():
+                probs = self.model(batch)
+                # binary classification
+                if self.task_type == "binary":
+                    preds = nn.functional.sigmoid(probs)
+                # multiclass classification
+                elif self.task_type == "multiclass":
+                    preds = nn.functional.softmax(probs, dim=-1)
+                preds = preds.cpu().numpy().flatten()
+
+                all_preds.append(preds)
+                all_probs.append(probs.cpu().numpy().flatten())
+        
+        # need to be reshaped 
+        all_preds = np.concatenate(all_preds)
+        all_probs = np.concatenate(all_probs)
+        return all_preds, all_probs
