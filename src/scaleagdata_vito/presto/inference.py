@@ -90,33 +90,51 @@ def min_max_normalize(image):
         image = np.array(image, dtype=np.float32)
     return (image - image.min()) / (image.max() - image.min())
 
-def plot_results(prob_map, pred_map, path_to_input_file, ts_index=0):
+def plot_results(prob_map, path_to_input_file, task, pred_map=None, ts_index=0):
     rgb = xr.load_dataset(path_to_input_file)
     bands = ['S2-L2A-B04', 'S2-L2A-B03', 'S2-L2A-B02']
     rgb = np.stack([rgb[band].values for band in bands], axis=-1)
     rgb = min_max_normalize(rgb)
-    
-    fig, axs = plt.subplots(1, 3, figsize=(15, 8))
+    if task!= "regression":
+        fig, axs = plt.subplots(1, 3, figsize=(15, 8))
 
-    # Plot the B2 band
-    axs[0].imshow(min_max_normalize(rgb[ts_index]))
-    axs[0].set_title('RGB')
-    axs[0].set_xticks([])
-    axs[0].set_yticks([])
+        # Plot the RGB bands
+        axs[0].imshow(min_max_normalize(rgb[ts_index]))
+        axs[0].set_title('RGB')
+        axs[0].set_xticks([])
+        axs[0].set_yticks([])
 
-    # Plot the preds_map
-    axs[1].imshow(pred_map, cmap='viridis')
-    axs[1].set_title('Prediction Map')
-    axs[1].set_xticks([])
-    axs[1].set_yticks([])
+        # Plot the preds_map
+        axs[1].imshow(pred_map, cmap='viridis')
+        axs[1].set_title('Prediction Map')
+        axs[1].set_xticks([])
+        axs[1].set_yticks([])
 
-    # Plot the prob_map
-    axs[2].imshow(prob_map, cmap='viridis', vmin=0, vmax=1)
-    axs[2].set_title('Probability Map')
-    axs[2].set_xticks([])
-    axs[2].set_yticks([])
-    cbar = fig.colorbar(axs[2].images[0], ax=axs[2], fraction=0.046, pad=0.04)
-    cbar.set_ticks([0, 1])
-    cbar.set_label('Probability')
+        # Plot the prob_map
+        axs[2].imshow(prob_map, cmap='viridis', vmin=0, vmax=1)
+        axs[2].set_title('Probability Map')
+        axs[2].set_xticks([])
+        axs[2].set_yticks([])
+        cbar = fig.colorbar(axs[2].images[0], ax=axs[2], fraction=0.046, pad=0.04)
+        cbar.set_ticks([0, 1])
+        cbar.set_label('Probability')
 
-    plt.show()
+        plt.show()
+    else:
+        fig, axs = plt.subplots(1, 2, figsize=(12, 8))
+
+        # Plot the RGB bands
+        axs[0].imshow(min_max_normalize(rgb[ts_index]))
+        axs[0].set_title('RGB')
+        axs[0].set_xticks([])
+        axs[0].set_yticks([])
+
+        # Plot the preds_map
+        axs[1].imshow(prob_map, cmap='viridis')
+        axs[1].set_title('Prediction Map')
+        axs[1].set_xticks([])
+        axs[1].set_yticks([])
+        
+        cbar = fig.colorbar(axs[2].images[0], ax=axs[2], fraction=0.046, pad=0.04)
+        cbar.set_label('Probability')
+        plt.show()

@@ -373,31 +373,14 @@ class ScaleAgInferenceDataset(Dataset):
         
     def __len__(self):
         return len(self.all_files)
-    
-    # def __getitem__(self, idx):
-    #     # Get the sample
-    #     filepath = self.all_files[idx]
-    #     inarr = xr.open_dataset(filepath)
-    #     epsg = CRS.from_wkt(inarr.crs.attrs["crs_wkt"]).to_epsg()
-    #     inarr = (
-    #         inarr
-    #         .to_array(dim="bands")
-    #         .drop_sel(bands="crs")
-    #         .astype("uint16")
-    #     )
-    #     return self._get_predictors(inarr, epsg)
-    
+  
     def nc_to_array(self, filepath: Path):
-        # path_to_files = path_to_files
-        # all_files = [path_to_files / 'worldcereal_preprocessed_inputs.nc'] # only for debug
-        # # self.all_files = list(self.path_to_files.glob("*.nc"))
         inarr = xr.open_dataset(filepath)
         epsg = CRS.from_wkt(inarr.crs.attrs["crs_wkt"]).to_epsg()
         inarr = (
             inarr
             .to_array(dim="bands")
             .drop_sel(bands="crs")
-            .astype("uint16")
         )
         return self._get_predictors(inarr, epsg)
         

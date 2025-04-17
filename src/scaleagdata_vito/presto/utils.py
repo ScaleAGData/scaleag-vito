@@ -1,7 +1,10 @@
+import random
 from typing import Literal, Union
 
 import catboost as cb
+import matplotlib.pyplot as plt
 import numpy as np
+import seaborn as sns
 import torch
 from loguru import logger
 from prometheo.datasets.scaleag import ScaleAgDataset
@@ -145,3 +148,40 @@ def evaluate_downstream_model(
         }
 
     return metrics
+
+
+def train_test_val_split(parentname, df, sampling_frac=0.8):
+    """
+    Splits the data into train, val and test sets.
+    The split is done based on the unique parentname values.
+    """
+    random.seed(3)
+    parentnames = df[parentname].unique()
+    parentname_train = random.sample(list(parentnames), int(len(parentnames)*sampling_frac))
+    df_sample = df.copy()
+    df_train = df_sample[df_sample[parentname].isin(parentname_train)]
+
+    # split in val and test
+    df_val_test = df_sample[~df_sample[parentname].isin(parentname_train)]
+    parentname_val_test = df_val_test[parentname].unique()
+    parentname_val = random.sample(list(parentname_val_test), int(len(parentname_val_test)*0.5))
+    df_val = df_val_test[df_val_test[parentname].isin(parentname_val)]
+    df_test = df_val_test[~df_val_test[parentname].isin(parentname_val)]
+
+    logger.info(f"Training set size: {len(df_train)}")
+    logger.info(f"Validation set size: {len(df_val)}")
+    logger.info(f"Test set size: {len(df_test)}")
+    
+    return df_train, df_val, df_test
+
+
+def plot_distribution(df, target_name, upper_bound=None, lower_bound=None):
+    plt.figure(figsize=(10, 6))
+    sns.histplot(df[target_name], bins=30, kde=True)
+    if upper_bound is not None:
+        plt.axvline(x=upper_bound, color='r', linestyle='--', label='Upper Bound')
+    if lower_bound is not None:
+        plt.axvline(x=lower_bound, color='g', linestyle='--', label='Lower Bound')
+        plt.legend()
+    plt.title(target_name)
+    plt.show()
