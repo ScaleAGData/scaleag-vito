@@ -18,11 +18,11 @@ class PostProcessor(ModelInference):
 
     def output_labels(self) -> list:
         if self._parameters.get("keep_class_probs", False):
-            return ["classification", "probability"] + [
+            return ["prediction", "probability"] + [
                 f"probability_{name}"
                 for name in self._parameters["lookup_table"].keys()
             ]
-        return ["classification", "probability"]
+        return ["prediction", "probability"]
 
     def dependencies(self) -> list:
         return []
@@ -156,7 +156,7 @@ class PostProcessor(ModelInference):
             np.stack((aggregated_predictions, aggregated_probabilities)),
             dims=["bands", "y", "x"],
             coords={
-                "bands": ["classification", "probability"],
+                "bands": ["prediction", "probability"],
                 "y": base_labels.y,
                 "x": base_labels.x,
             },
@@ -232,7 +232,7 @@ class PostProcessor(ModelInference):
             np.stack((new_labels_vals, new_max_probs_vals)),
             dims=["bands", "y", "x"],
             coords={
-                "bands": ["classification", "probability"],
+                "bands": ["prediction", "probability"],
                 "y": base_labels.y,
                 "x": base_labels.x,
             },
@@ -248,12 +248,12 @@ class PostProcessor(ModelInference):
 
             # Peform probability smoothing
             class_probabilities = PostProcessor.smooth_probabilities(
-                inarr.sel(bands="classification"), class_probabilities
+                inarr.sel(bands="prediction"), class_probabilities
             )
 
             # Reclassify
             new_labels = PostProcessor.reclassify(
-                inarr.sel(bands="classification"),
+                inarr.sel(bands="prediction"),
                 inarr.sel(bands="probability"),
                 class_probabilities,
             )
@@ -264,13 +264,13 @@ class PostProcessor(ModelInference):
             # create a final labels array with same dimensions as new_labels
             final_labels = xr.full_like(new_labels, fill_value=float("nan"))
             for idx, label in enumerate(class_labels):
-                final_labels.loc[{"bands": "classification"}] = xr.where(
-                    new_labels.sel(bands="classification") == idx,
+                final_labels.loc[{"bands": "prediction"}] = xr.where(
+                    new_labels.sel(bands="prediction") == idx,
                     label,
-                    final_labels.sel(bands="classification"),
+                    final_labels.sel(bands="prediction"),
                 )
-            new_labels.sel(bands="classification").values = final_labels.sel(
-                bands="classification"
+            new_labels.sel(bands="prediction").values = final_labels.sel(
+                bands="prediction"
             ).values
 
             # Append the per-class probabalities if required
@@ -282,7 +282,7 @@ class PostProcessor(ModelInference):
             kernel_size = self._parameters.get("kernel_size")
 
             new_labels = PostProcessor.majority_vote(
-                inarr.sel(bands="classification"),
+                inarr.sel(bands="prediction"),
                 inarr.sel(bands="probability"),
                 kernel_size=kernel_size,
             )

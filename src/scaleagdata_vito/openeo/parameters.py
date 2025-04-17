@@ -21,6 +21,7 @@ class ScaleAgProductType(Enum):
     REGRESSION = "regression"
     BINARY = "binary"
 
+
 class ScaleAgParameters(BaseModel):
     """Parameters for the ScaleAg product inference pipeline. Types are enforced by Pydantic.
 
@@ -29,7 +30,7 @@ class ScaleAgParameters(BaseModel):
     presto_url : str
         Public URL to the classifier model. The file should be an ONNX model.
     """
-
+    
     presto_url: str
 
 
@@ -49,9 +50,8 @@ class ScaleAgParametersRegression(BaseModel):
         GFMAP's `ModelInference` and returns predictions/probabilities for
         regression task.
     """
-    def __init__(self, presto_url: str, parameters: ScaleAgParameters):
-        super().__init__(presto_url=presto_url)
-        self.parameters = parameters
+
+    presto_url: str
     feature_extractor: Type[PatchFeatureExtractor] = Field(default=PrestoFeatureExtractor)
     classifier: Type[ModelInference] = Field(default=ScaleAgRegressor)
     
@@ -66,6 +66,7 @@ class ScaleAgParametersRegression(BaseModel):
             raise ValidationError(
                 f"Classifier must be a subclass of ModelInference, got {self.classifier}"
             )
+
 
 class ScaleAgParametersBinary(BaseModel):
     """Parameters for the ScaleAg product inference pipeline. Types are enforced by Pydantic.
@@ -83,10 +84,7 @@ class ScaleAgParametersBinary(BaseModel):
         GFMAP's `ModelInference` and returns predictions/probabilities for
         binary task.
     """
-    def __init__(self, presto_url: str, parameters: ScaleAgParameters):
-        super().__init__(presto_url=presto_url)
-        self.parameters = parameters
-        
+    presto_url: str
     feature_extractor: Type[PatchFeatureExtractor] = Field(default=PrestoFeatureExtractor)
     classifier: Type[ModelInference] = Field(default=ScaleAgBinaryClassifier)
     
@@ -120,9 +118,7 @@ class ScaleAgParametersMultiClass(BaseModel):
     
     """
     
-    def __init__(self, presto_url: str, parameters: ScaleAgParameters):
-        super().__init__(presto_url=presto_url)
-        self.parameters = parameters
+    presto_url: str
     feature_extractor: Type[PatchFeatureExtractor] = Field(default=PrestoFeatureExtractor)
     classifier: Type[ModelInference] = Field(default=ScaleAgMulticlassClassifier)
     

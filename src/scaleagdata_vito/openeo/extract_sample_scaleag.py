@@ -7,7 +7,7 @@ from enum import Enum
 from functools import partial
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-from typing import Callable, List, Optional
+from typing import Callable, List, Literal, Optional, Union
 
 import geojson
 import geopandas as gpd
@@ -16,7 +16,13 @@ import pandas as pd
 import pystac
 import requests
 from openeo.rest import OpenEoApiError, OpenEoApiPlainError, OpenEoRestError
-from openeo_gfmap import Backend, BackendContext, FetchType, TemporalContext
+from openeo_gfmap import (
+    Backend,
+    BackendContext,
+    BoundingBoxExtent,
+    FetchType,
+    TemporalContext,
+)
 from openeo_gfmap.backend import cdse_connection
 from openeo_gfmap.manager.job_manager import GFMAPJobManager
 from openeo_gfmap.manager.job_splitters import split_job_s2grid
@@ -224,7 +230,6 @@ def create_job_sample_scaleag(
         spatial_extent=geometry,
         temporal_extent=temporal_extent,
         composite_window=row.composite_window,
-        fetch_type=FetchType.POINT,
         s2_tile=s2_tile,
     )
 
@@ -460,9 +465,13 @@ def extract(args):
     tracking_df_path = Path(args.output_folder) / "job_tracking.csv"
 
     # Load the input dataframe and build the job dataframe
-    input_df = load_dataframe(args.input_df)
-    input_df["sample_id"] = input_df[args.unique_id_column]
-    assert input_df["sample_id"].is_unique, "The unique ID column is not unique."
+    if args.routine == "training":
+        assert args.input_df != "", "Input dataframe is required for the training routine."
+        input_df = load_dataframe(args.input_df)
+        
+    if input_df["sample_id"] != "":
+        input_df["sample_id"] = input_df[args.unique_id_column]
+        assert input_df["sample_id"].is_unique, "The unique ID column is not unique."
 
     job_df = None
     if not tracking_df_path.exists():
@@ -547,3 +556,62 @@ def generate_extraction_job_command(
                 command.extend([f"--{key}", str(value)])
     command = " ".join(command)
     print(command)
+
+
+def collect_inputs_for_inference(
+    spatial_extent: BoundingBoxExtent,
+    temporal_extent: TemporalContext,
+    output_path: Union[Path, str],
+    backend_context: BackendContext = BackendContext(Backend.CDSE),
+    tile_size: Optional[int] = 128,
+    job_options: Optional[dict] = None,
+    composite_window: Literal["month", "dekad"] = "dekad",
+):
+    """Function to retrieve preprocessed inputs that are being
+    used in the generation of WorldCereal products.
+
+    Parameters
+    ----------
+    spatial_extent : BoundingBoxExtent
+        spatial extent of the map
+    temporal_extent : TemporalContext
+        temporal range to consider
+    output_path : Union[Path, str]
+        output path to download the product to
+    backend_context : BackendContext
+        backend to run the job on, by default CDSE
+    tile_size: int, optional
+        Tile size to use for the data loading in OpenEO, by default 128
+        so it uses the OpenEO default setting.
+    job_options: dict, optional
+        Additional job options to pass to the OpenEO backend, by default None
+    """
+
+    # Preparing the input cube for the inference
+    inputs = scaleag_preprocessed_inputs(
+        connection=cdse_connection(),
+        backend_context=backend_context,
+        spatial_extent=spatial_extent,
+        temporal_extent=temporal_extent,
+        tile_size=tile_size,
+        composite_window=composite_window,
+        fetch_type=FetchType.TILE
+    )
+
+    JOB_OPTIONS = {
+        "driver-memory": "4g",
+        "executor-memory": "1g",
+        "executor-memoryOverhead": "1g",
+        "python-memory": "2g",
+        "soft-errors": "true",
+    }
+    if job_options is not None:
+        JOB_OPTIONS.update(job_options)
+
+    inputs.execute_batch(
+        outputfile=output_path,
+        out_format="NetCDF",
+        title="ScaleAg collect inference inputs",
+        description="Job that collects inputs for ScaleAg inference",
+        job_options=job_options,
+    )

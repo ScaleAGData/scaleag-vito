@@ -368,18 +368,29 @@ class ScaleAgInferenceDataset(Dataset):
         "AGERA5-TMEAN": "temperature",
     }
     
-    def __init__(self, path_to_files: Path, compositing_window: Literal["dekad", "month"] = "dekad"):
-        self.path_to_files = path_to_files
-        self.all_files = [path_to_files / 'worldcereal_preprocessed_inputs.nc'] # only for debug
-        # self.all_files = list(self.path_to_files.glob("*.nc"))
+    def __init__(self, compositing_window: Literal["dekad", "month"] = "dekad"):
         self.compositing_window = compositing_window
         
     def __len__(self):
         return len(self.all_files)
     
-    def __getitem__(self, idx):
-        # Get the sample
-        filepath = self.all_files[idx]
+    # def __getitem__(self, idx):
+    #     # Get the sample
+    #     filepath = self.all_files[idx]
+    #     inarr = xr.open_dataset(filepath)
+    #     epsg = CRS.from_wkt(inarr.crs.attrs["crs_wkt"]).to_epsg()
+    #     inarr = (
+    #         inarr
+    #         .to_array(dim="bands")
+    #         .drop_sel(bands="crs")
+    #         .astype("uint16")
+    #     )
+    #     return self._get_predictors(inarr, epsg)
+    
+    def nc_to_array(self, filepath: Path):
+        # path_to_files = path_to_files
+        # all_files = [path_to_files / 'worldcereal_preprocessed_inputs.nc'] # only for debug
+        # # self.all_files = list(self.path_to_files.glob("*.nc"))
         inarr = xr.open_dataset(filepath)
         epsg = CRS.from_wkt(inarr.crs.attrs["crs_wkt"]).to_epsg()
         inarr = (
@@ -389,8 +400,9 @@ class ScaleAgInferenceDataset(Dataset):
             .astype("uint16")
         )
         return self._get_predictors(inarr, epsg)
+        
     
-    def _get_predictors(self, inarr: xr.DataArray, epsg: int) -> Predictors:
+    def _get_predictors(self, inarr: xr.DataArray, epsg: int) -> List[np.ndarray]:
         num_pixels = len(inarr.x) * len(inarr.y)
         num_timesteps = len(inarr.t)
 
@@ -429,15 +441,9 @@ class ScaleAgInferenceDataset(Dataset):
                     )
                 elif dst_attr in DEM_BANDS:
                     dem = self.openeo_to_prometheo_units(dem, dst_attr, values, idx_valid) 
-        predictors_dict = {
-            "s1": s1,
-            "s2": s2,
-            "meteo": meteo,
-            "dem": dem,
-            "latlon": latlon,
-            "timestamps": self.get_date_array(inarr, num_timesteps),
-        }
-        return Predictors(**predictors_dict)
+        # extend the dimension of the timestamp array to match the number of pixels
+        timestamps = np.repeat(self.get_date_array(inarr, num_timesteps)[np.newaxis, :, :], num_pixels, 0)
+        return s1, s2, meteo, dem, latlon, timestamps
         
     def _get_correct_date(self, dt_in: str) -> np.datetime64:
         """
@@ -511,7 +517,7 @@ class ScaleAgInferenceDataset(Dataset):
             days, months, years = self._get_monthly_dates(start_date, num_timesteps)
         else:
             raise ValueError(f"Unknown compositing window: {self.compositing_window}")
-
+        
         return np.stack([days, months, years], axis=1)
     
     def _extract_latlons(self, inarr: xr.DataArray, epsg: int) -> np.ndarray:
@@ -573,4 +579,23 @@ class ScaleAgInferenceDataset(Dataset):
             dtype=np.float32,
         )
         dem = np.full((num_pix, 1, 1, len(DEM_BANDS)), fill_value=NODATAVALUE, dtype=np.float32)
-        return s1, s2, meteo, dem    
+        return s1, s2, meteo, dem
+       
+class InferenceDataset(Dataset):
+    def __init__(self, s1, s2, meteo, dem, latlon, timestamps):
+        self.data = [
+            Predictors(**dict(
+                s1=s1[i],
+                s2=s2[i],
+                meteo=meteo[i],
+                dem=dem[i],
+                latlon=latlon[i],
+                timestamps=timestamps[i],
+            ))
+            for i in range(len(s1))]
+        
+    def __getitem__(self, idx):
+        return self.data[idx]
+    
+    def __len__(self):
+        return len(self.data)
