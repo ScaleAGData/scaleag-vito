@@ -539,7 +539,6 @@ def generate_input_for_extractions(input_dict):
 
     return job_inputs
 
-
 def generate_extraction_job_command(
     job_params, extraction_script_path="scaleag-vito/scripts/extractions/extract.py"
 ):
@@ -562,6 +561,7 @@ def collect_inputs_for_inference(
     spatial_extent: BoundingBoxExtent,
     temporal_extent: TemporalContext,
     output_path: Union[Path, str],
+    output_filename: str,
     backend_context: BackendContext = BackendContext(Backend.CDSE),
     tile_size: Optional[int] = 128,
     job_options: Optional[dict] = None,
@@ -609,9 +609,9 @@ def collect_inputs_for_inference(
         JOB_OPTIONS.update(job_options)
 
     inputs.execute_batch(
-        outputfile=output_path,
+        outputfile=output_path / f"{output_filename}",
         out_format="NetCDF",
-        title="ScaleAg collect inference inputs",
+        title="ScaleAgData collect inference inputs",
         description="Job that collects inputs for ScaleAg inference",
         job_options=job_options,
     )
