@@ -1,11 +1,13 @@
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Union
 
+import matplotlib.gridspec as gridspec
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import xarray as xr
 from einops import rearrange
+from matplotlib.ticker import ScalarFormatter
 from prometheo.models.presto.wrapper import PretrainedPrestoWrapper
 from prometheo.predictors import collate_fn
 from torch.utils.data import DataLoader
@@ -36,7 +38,7 @@ class PrestoPredictor:
         self.task_type = task_type
         self.compositing_window = compositing_window
 
-    def predict(self, path_to_file: Path) -> np.ndarray:
+    def predict(self, path_to_file: Path, upper_bound: Union[float, None]=None, lower_bound: Union[float, None]=None) -> np.ndarray:
         cl = ScaleAgInferenceDataset(compositing_window=self.compositing_window)
         s1_cube, s2_cube, meteo_cube, dem_cube, latlon_cube, timestamps_cube = cl.nc_to_array(path_to_file)
         ds = InferenceDataset(s1_cube,
@@ -63,6 +65,16 @@ class PrestoPredictor:
                 # multiclass classification
                 elif self.task_type == "multiclass":
                     probs = torch.softmax(output, dim=-1).cpu().numpy()
+                elif self.task_type == "regression":
+                    probs = output.cpu().numpy()
+                    if upper_bound is not None and lower_bound is not None:
+                        probs = revert_to_original_units(probs, upper_bound, lower_bound)
+                    else:
+                        raise ValueError(
+                            "upper_bound and lower_bound used during training" \
+                            "must be provided for converting results to origininal units")
+                else:
+                    raise ValueError("task_type must be either 'binary', 'multiclass' or 'regression'")
                 all_probs.append(probs.flatten())
         all_probs = np.concatenate(all_probs)
         return all_probs
@@ -76,6 +88,8 @@ class PrestoPredictor:
             raise ValueError("task_type must be either 'binary' or 'multiclass'")
         return preds
 
+def revert_to_original_units(target_norm, upper_bound, lower_bound):
+    return target_norm * (upper_bound - lower_bound) + lower_bound
 
 def reshape_result(result: np.ndarray, path_to_input_file: Path):
     input_arr = xr.load_dataset(path_to_input_file)
@@ -85,56 +99,58 @@ def reshape_result(result: np.ndarray, path_to_input_file: Path):
     return reshaped_result
 
 def min_max_normalize(image):
-    # Ensure the input is a numpy array
-    if not isinstance(image, np.ndarray):
-        image = np.array(image, dtype=np.float32)
+    # normalize image and set NaNs to NODATA value
+    image = np.nan_to_num(image, 65535).astype('uint16')
     return (image - image.min()) / (image.max() - image.min())
 
 def plot_results(prob_map, path_to_input_file, task, pred_map=None, ts_index=0):
     rgb = xr.load_dataset(path_to_input_file)
     bands = ['S2-L2A-B04', 'S2-L2A-B03', 'S2-L2A-B02']
     rgb = np.stack([rgb[band].values for band in bands], axis=-1)
-    rgb = min_max_normalize(rgb)
-    if task!= "regression":
-        fig, axs = plt.subplots(1, 3, figsize=(15, 8))
+    if task != "regression":
+        fig = plt.figure(figsize=(15, 8))
+        gs = gridspec.GridSpec(1, 4, width_ratios=[1, 1, 1, 0.05], wspace=0.1)
 
-        # Plot the RGB bands
+        axs = [fig.add_subplot(gs[i]) for i in range(3)]
+        cax = fig.add_subplot(gs[3])  # dedicated colorbar axis
+
         axs[0].imshow(min_max_normalize(rgb[ts_index]))
         axs[0].set_title('RGB')
-        axs[0].set_xticks([])
-        axs[0].set_yticks([])
-
-        # Plot the preds_map
-        axs[1].imshow(pred_map, cmap='viridis')
+        axs[0].axis('off')
+        if task == "binary":
+            axs[1].imshow(pred_map, cmap='gray')
+        else:
+            axs[1].imshow(pred_map, cmap='nipy_spectral')
         axs[1].set_title('Prediction Map')
-        axs[1].set_xticks([])
-        axs[1].set_yticks([])
+        axs[1].axis('off')
 
-        # Plot the prob_map
-        axs[2].imshow(prob_map, cmap='viridis', vmin=0, vmax=1)
+        im = axs[2].imshow(prob_map, cmap='magma', vmin=0, vmax=1)
         axs[2].set_title('Probability Map')
-        axs[2].set_xticks([])
-        axs[2].set_yticks([])
-        cbar = fig.colorbar(axs[2].images[0], ax=axs[2], fraction=0.046, pad=0.04)
-        cbar.set_ticks([0, 1])
-        cbar.set_label('Probability')
+        axs[2].axis('off')
 
+        cbar = fig.colorbar(im, cax=cax)
+        cbar.set_ticks(np.arange(0, 1.1, 0.1)) 
         plt.show()
+        
     else:
-        fig, axs = plt.subplots(1, 2, figsize=(12, 8))
+        fig = plt.figure(figsize=(12, 5))
+        gs = gridspec.GridSpec(1, 3, width_ratios=[1, 1, 0.05], wspace=0.1)
 
-        # Plot the RGB bands
+        axs = [fig.add_subplot(gs[i]) for i in range(2)]
+        cax = fig.add_subplot(gs[2])  # separate axis for colorbar
+
         axs[0].imshow(min_max_normalize(rgb[ts_index]))
         axs[0].set_title('RGB')
-        axs[0].set_xticks([])
-        axs[0].set_yticks([])
+        axs[0].axis('off')
 
-        # Plot the preds_map
-        axs[1].imshow(prob_map, cmap='viridis')
+        im = axs[1].imshow(prob_map, cmap='magma', vmin=0, vmax=prob_map.max())
         axs[1].set_title('Prediction Map')
-        axs[1].set_xticks([])
-        axs[1].set_yticks([])
-        
-        cbar = fig.colorbar(axs[2].images[0], ax=axs[2], fraction=0.046, pad=0.04)
-        cbar.set_label('Probability')
+        axs[1].axis('off')
+
+        cbar = fig.colorbar(im, cax=cax)
+        # Use scientific (power of 10) format
+        formatter = ScalarFormatter(useMathText=True)
+        formatter.set_scientific(True)
+        formatter.set_powerlimits((-2, 3))  # show scientific notation for large/small values
+        cbar.ax.yaxis.set_major_formatter(formatter)
         plt.show()
