@@ -95,7 +95,11 @@ def reshape_result(result: np.ndarray, path_to_input_file: Path):
     input_arr = xr.load_dataset(path_to_input_file)
     x_coords = input_arr.x.values
     y_coords = input_arr.y.values
-    reshaped_result = rearrange(result, '(y x) -> y x', y=len(y_coords), x=len(x_coords))
+    if result.shape[0] != len(x_coords) * len(y_coords):
+        class_dim = result.shape[0] // (len(x_coords) * len(y_coords))
+        reshaped_result = rearrange(result, '(c y x) -> y x c', y=len(y_coords), x=len(x_coords), c=class_dim)
+    else:
+        reshaped_result = rearrange(result, '(y x) -> y x', y=len(y_coords), x=len(x_coords))
     return reshaped_result
 
 def min_max_normalize(image):
@@ -103,12 +107,14 @@ def min_max_normalize(image):
     image = np.nan_to_num(image, 65535).astype('uint16')
     return (image - image.min()) / (image.max() - image.min())
 
-def plot_results(prob_map, path_to_input_file, task, pred_map=None, ts_index=0):
+def plot_results(path_to_input_file, task, prob_map=None, pred_map=None, ts_index=0):
     rgb = xr.load_dataset(path_to_input_file)
     bands = ['S2-L2A-B04', 'S2-L2A-B03', 'S2-L2A-B02']
     rgb = np.stack([rgb[band].values for band in bands], axis=-1)
-    if task != "regression":
-        fig = plt.figure(figsize=(15, 8))
+    if task == "binary":
+        if prob_map is None or pred_map is None:
+            raise ValueError("prob_map and pred_map must be provided for binary classification")
+        fig = plt.figure(figsize=(15, 5))
         gs = gridspec.GridSpec(1, 4, width_ratios=[1, 1, 1, 0.05], wspace=0.1)
 
         axs = [fig.add_subplot(gs[i]) for i in range(3)]
@@ -131,8 +137,25 @@ def plot_results(prob_map, path_to_input_file, task, pred_map=None, ts_index=0):
         cbar = fig.colorbar(im, cax=cax)
         cbar.set_ticks(np.arange(0, 1.1, 0.1)) 
         plt.show()
-        
+    elif task == "multiclass":
+        if pred_map is None:
+            raise ValueError("pred_map must be provided for multiclass classification")
+        fig = plt.figure(figsize=(10, 5))
+        gs = gridspec.GridSpec(1, 2, width_ratios=[1, 1], wspace=0.1)
+
+        axs = [fig.add_subplot(gs[i]) for i in range(2)]
+        axs[0].imshow(min_max_normalize(rgb[ts_index]))
+        axs[0].set_title('RGB')
+        axs[0].axis('off')
+
+        axs[1].imshow(pred_map, cmap='nipy_spectral')
+        axs[1].set_title('Prediction Map')
+        axs[1].axis('off')
+
+        plt.show()    
     else:
+        if prob_map is None:
+            raise ValueError("prob_map must be provided for regression")
         fig = plt.figure(figsize=(12, 5))
         gs = gridspec.GridSpec(1, 3, width_ratios=[1, 1, 0.05], wspace=0.1)
 
