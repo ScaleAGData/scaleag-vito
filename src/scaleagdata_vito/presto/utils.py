@@ -1,4 +1,5 @@
 import random
+from pathlib import Path
 from typing import Literal, Union
 
 import catboost as cb
@@ -7,8 +8,15 @@ import numpy as np
 import seaborn as sns
 import torch
 from loguru import logger
+from prometheo import finetune
 from prometheo.datasets.scaleag import ScaleAgDataset
-from prometheo.models.presto.wrapper import PretrainedPrestoWrapper, dataset_to_model
+from prometheo.finetune import Hyperparams
+from prometheo.models.presto import param_groups_lrd
+from prometheo.models.presto.wrapper import (
+    PretrainedPrestoWrapper,
+    dataset_to_model,
+    load_pretrained,
+)
 from prometheo.predictors import collate_fn, to_torchtensor
 from prometheo.utils import device
 from sklearn.metrics import (
@@ -19,6 +27,7 @@ from sklearn.metrics import (
     r2_score,
 )
 from torch import nn
+from torch.optim import AdamW, lr_scheduler
 from torch.utils.data import DataLoader
 
 
@@ -113,6 +122,95 @@ def evaluate_finetuned_model(
 
     return metrics
 
+def load_finetuned_model(
+    model_path: Union[Path, str],
+    task_type: Literal["regression", "binary", "multiclass"] = "regression",
+    num_outputs: int = 1,
+):
+    if task_type == "regression":
+        model = PretrainedPrestoWrapper(
+            num_outputs=1,
+            regression=True,
+        )
+
+    elif task_type == "binary":
+        model = PretrainedPrestoWrapper(
+            num_outputs=1,
+            regression=False,
+        )
+
+    else:
+        if num_outputs == 1:
+            raise ValueError(
+                "num_outputs is 1, but task_type is multiclass.Please provide correct num_outputs"
+            )
+        model = PretrainedPrestoWrapper(
+            num_outputs=num_outputs,
+            regression=False,
+        )
+    return load_pretrained(model,f'{model_path}.pt', strict=False)
+    
+    
+def finetune_on_task(
+    train_ds: ScaleAgDataset,
+    val_ds: ScaleAgDataset,
+    output_dir: Union[Path, str],
+    experiment_name: str,
+    pretrained_model_path: Union[Path, str, None] = None,
+    max_epochs: int = 100,
+    batch_size: int = 100,
+    patience: int = 3,
+    num_workers: int = 2
+    ):
+    if train_ds.task_type == "regression":
+        model = PretrainedPrestoWrapper(
+            num_outputs=1,
+            regression=True,
+        )
+        loss_fn = nn.MSELoss()
+    elif train_ds.task_type == "binary":
+        model = PretrainedPrestoWrapper(
+            num_outputs=1,
+            regression=False,
+            pretrained_model_path=pretrained_model_path, ###### TODO fix loading old models 
+        )
+        loss_fn = nn.BCEWithLogitsLoss()
+    else:
+        model = PretrainedPrestoWrapper(
+            num_outputs=train_ds.num_outputs,
+            regression=False,
+        )
+        loss_fn = nn.CrossEntropyLoss()
+    
+    if pretrained_model_path is not None and train_ds.task_type == "regression": ######## TODO fix loading old models, remove second if
+        model = load_pretrained(model, pretrained_model_path, strict=False) 
+    elif train_ds.task_type == "regression":
+        logger.warning("No pretrained model provided. Using random weights.")
+    hyperparams = Hyperparams(
+        max_epochs=max_epochs,
+        batch_size=batch_size,
+        patience=patience, 
+        num_workers=num_workers
+        )
+    parameters = param_groups_lrd(model)
+    optimizer = AdamW(parameters, lr=hyperparams.lr)
+    scheduler = lr_scheduler.ExponentialLR(optimizer, gamma=0.99)
+
+    logger.info(f"Finetuning the model on {train_ds.task_type} task")
+    finetuned_model = finetune.run_finetuning(
+                model=model,
+                train_ds=train_ds,
+                val_ds=val_ds,
+                experiment_name=experiment_name,
+                output_dir=output_dir,
+                loss_fn=loss_fn,
+                optimizer=optimizer,
+                scheduler=scheduler,
+                hyperparams=hyperparams,
+                setup_logging=False,  # Already setup logging
+            )
+    return finetuned_model
+
 
 def evaluate_downstream_model(
     finetuned_model: PretrainedPrestoWrapper,
@@ -150,24 +248,33 @@ def evaluate_downstream_model(
     return metrics
 
 
-def train_test_val_split(parentname, df, sampling_frac=0.8):
+def train_test_val_split(df, group_sample_by=None, uniform_sample_by=None, sampling_frac=0.8):
     """
     Splits the data into train, val and test sets.
     The split is done based on the unique parentname values.
     """
-    random.seed(3)
-    parentnames = df[parentname].unique()
-    parentname_train = random.sample(list(parentnames), int(len(parentnames)*sampling_frac))
-    df_sample = df.copy()
-    df_train = df_sample[df_sample[parentname].isin(parentname_train)]
+    if group_sample_by is not None:
+        random.seed(3)
+        parentnames = df[group_sample_by].unique()
+        parentname_train = random.sample(list(parentnames), int(len(parentnames)*sampling_frac))
+        df_sample = df.copy()
+        df_train = df_sample[df_sample[group_sample_by].isin(parentname_train)]
 
-    # split in val and test
-    df_val_test = df_sample[~df_sample[parentname].isin(parentname_train)]
-    parentname_val_test = df_val_test[parentname].unique()
-    parentname_val = random.sample(list(parentname_val_test), int(len(parentname_val_test)*0.5))
-    df_val = df_val_test[df_val_test[parentname].isin(parentname_val)]
-    df_test = df_val_test[~df_val_test[parentname].isin(parentname_val)]
-
+        # split in val and test
+        df_val_test = df_sample[~df_sample[group_sample_by].isin(parentname_train)]
+        parentname_val_test = df_val_test[group_sample_by].unique()
+        parentname_val = random.sample(list(parentname_val_test), int(len(parentname_val_test)*0.5))
+        df_val = df_val_test[df_val_test[group_sample_by].isin(parentname_val)]
+        df_test = df_val_test[~df_val_test[group_sample_by].isin(parentname_val)]
+    elif uniform_sample_by is not None:
+        df_sample = df.copy()
+        df_train = df_sample.groupby(uniform_sample_by).sample(frac=sampling_frac, random_state=3)
+        df_val_test = df_sample[~df_sample.index.isin(df_train.index)]
+        df_val = df_val_test.sample(frac=0.5, random_state=3)
+        df_test = df_val_test[~df_val_test.index.isin(df_val.index)]
+    else:
+        raise ValueError("Either group_sample_by or uniform_sample_by must be provided to split the data.")
+    
     logger.info(f"Training set size: {len(df_train)}")
     logger.info(f"Validation set size: {len(df_val)}")
     logger.info(f"Test set size: {len(df_test)}")
