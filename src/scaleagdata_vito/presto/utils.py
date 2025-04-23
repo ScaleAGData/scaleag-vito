@@ -248,13 +248,13 @@ def evaluate_downstream_model(
     return metrics
 
 
-def train_test_val_split(df, group_sample_by=None, uniform_sample_by=None, sampling_frac=0.8):
+def train_test_val_split(df, group_sample_by=None, uniform_sample_by=None, sampling_frac=0.8, n=5):
     """
     Splits the data into train, val and test sets.
     The split is done based on the unique parentname values.
     """
+    random.seed(3)
     if group_sample_by is not None:
-        random.seed(3)
         parentnames = df[group_sample_by].unique()
         parentname_train = random.sample(list(parentnames), int(len(parentnames)*sampling_frac))
         df_sample = df.copy()
@@ -266,11 +266,18 @@ def train_test_val_split(df, group_sample_by=None, uniform_sample_by=None, sampl
         parentname_val = random.sample(list(parentname_val_test), int(len(parentname_val_test)*0.5))
         df_val = df_val_test[df_val_test[group_sample_by].isin(parentname_val)]
         df_test = df_val_test[~df_val_test[group_sample_by].isin(parentname_val)]
+        
     elif uniform_sample_by is not None:
-        df_sample = df.copy()
+        group_counts = df[uniform_sample_by].value_counts()
+        valid_groups = group_counts[group_counts >= n].index
+        if len(valid_groups) != len(group_counts):
+            logger.warning(f"Some groups have less than {n} samples. They will be excluded from the split.")
+        else:
+            logger.info(f"All groups have at least {n} samples. Proceeding with the split.")
+        df_sample = df[df[uniform_sample_by].isin(valid_groups)].reset_index(drop=True)
         df_train = df_sample.groupby(uniform_sample_by).sample(frac=sampling_frac, random_state=3)
         df_val_test = df_sample[~df_sample.index.isin(df_train.index)]
-        df_val = df_val_test.sample(frac=0.5, random_state=3)
+        df_val = df_val_test.groupby(uniform_sample_by).sample(frac=0.5, random_state=3)
         df_test = df_val_test[~df_val_test.index.isin(df_val.index)]
     else:
         raise ValueError("Either group_sample_by or uniform_sample_by must be provided to split the data.")
