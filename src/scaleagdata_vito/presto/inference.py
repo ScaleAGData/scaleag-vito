@@ -24,7 +24,7 @@ class PrestoPredictor:
         model: PretrainedPrestoWrapper,
         batch_size: int = 8192,
         task_type: Literal["regression", "binary", "multiclass"] = "regression",
-        compositing_window: Literal["dekad", "month"] = "dekad"
+        composite_window: Literal["dekad", "month"] = "dekad"
         ):
         """
         Initialize the PrestoFeatureExtractor with a Presto model.
@@ -36,10 +36,10 @@ class PrestoPredictor:
         self.model = model #.to(device="cuda" if torch.cuda.is_available() else "cpu")
         self.batch_size = batch_size
         self.task_type = task_type
-        self.compositing_window = compositing_window
+        self.composite_window = composite_window
 
     def predict(self, path_to_file: Path, upper_bound: Union[float, None]=None, lower_bound: Union[float, None]=None) -> np.ndarray:
-        cl = ScaleAgInferenceDataset(compositing_window=self.compositing_window)
+        cl = ScaleAgInferenceDataset(composite_window=self.composite_window)
         s1_cube, s2_cube, meteo_cube, dem_cube, latlon_cube, timestamps_cube = cl.nc_to_array(path_to_file)
         ds = InferenceDataset(s1_cube,
                               s2_cube,

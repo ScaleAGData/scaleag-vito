@@ -283,7 +283,7 @@ def train_test_val_split(df, group_sample_by=None, uniform_sample_by=None, sampl
 
 
 def plot_distribution(df, target_name, upper_bound=None, lower_bound=None):
-    plt.figure(figsize=(10, 6))
+    plt.figure(figsize=(8, 4))
     sns.histplot(df[target_name], bins=30, kde=True)
     if upper_bound is not None:
         plt.axvline(x=upper_bound, color='r', linestyle='--', label='Upper Bound')

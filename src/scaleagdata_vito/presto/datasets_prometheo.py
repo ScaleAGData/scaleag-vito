@@ -45,7 +45,7 @@ class ScaleAgDataset(Dataset):
         task_type: Literal["regression", "binary", "multiclass", "ssl"] = "ssl",
         target_name: Optional[str] = None,
         positive_labels: Optional[Union[List[Any], Any]] = None,
-        compositing_window: Literal["dekad", "month"] = "dekad",
+        composite_window: Literal["dekad", "month"] = "dekad",
         time_explicit: bool = False,
         upper_bound: Optional[float] = None,
         lower_bound: Optional[float] = None,
@@ -64,7 +64,7 @@ class ScaleAgDataset(Dataset):
             Name of the target column, by default None.
         positive_labels : Optional[Union[List[Any], Any]], optional
             Positive labels for binary classification, by default None.
-        compositing_window : Literal["dekad", "month"], optional
+        composite_window : Literal["dekad", "month"], optional
             Compositing window type, by default "dekad".
         time_explicit : bool, optional
             Defines how to handle time dimension for the label predictor.
@@ -85,7 +85,7 @@ class ScaleAgDataset(Dataset):
         self.target_name = target_name
         self.positive_labels = positive_labels
         self.num_outputs = self.set_num_outputs()
-        self.compositing_window = compositing_window
+        self.composite_window = composite_window
         self.time_explicit = time_explicit
 
         # assess label type and bound label values to valid range if upper and lower bounds are provided
@@ -94,10 +94,14 @@ class ScaleAgDataset(Dataset):
                 np.float32,
                 np.float64,
             ], "Regression target must be of type float"
-
-            if upper_bound is None or lower_bound is None:
-                upper_bound = self.dataframe[target_name].max()
-                lower_bound = self.dataframe[target_name].min()
+            # they need to be provided for the normalization and be based on the whole dataset distribution.
+            # if set automatically, the values are based on the current batch and normalized differently across the datasets!
+            assert (upper_bound is not None) and (
+                lower_bound is not None
+            ), "upper_bound and lower_bound must be provided for the target normalization"
+            # if upper_bound is None or lower_bound is None:
+                # upper_bound = self.dataframe[target_name].max()
+                # lower_bound = self.dataframe[target_name].min()
             self.lower_bound = lower_bound
             self.upper_bound = upper_bound
             self.dataframe[target_name] = self.dataframe[target_name].clip(
@@ -203,17 +207,17 @@ class ScaleAgDataset(Dataset):
         month = np.datetime64(dt_in, "D").astype("object").month
         day = np.datetime64(dt_in, "D").astype("object").day
 
-        if self.compositing_window == "dekad":
+        if self.composite_window == "dekad":
             if day <= 10:
                 correct_date = np.datetime64(f"{year}-{month:02d}-01")
             elif 11 <= day <= 20:
                 correct_date = np.datetime64(f"{year}-{month:02d}-11")
             else:
                 correct_date = np.datetime64(f"{year}-{month:02d}-21")
-        elif self.compositing_window == "month":
+        elif self.composite_window == "month":
             correct_date = np.datetime64(f"{year}-{month:02d}-01")
         else:
-            raise ValueError(f"Unknown compositing window: {self.compositing_window}")
+            raise ValueError(f"Unknown compositing window: {self.composite_window}")
 
         return correct_date
 
@@ -259,12 +263,12 @@ class ScaleAgDataset(Dataset):
         start_date = self._get_correct_date(row.start_date)
 
         # Generate date vector depending on the compositing window
-        if self.compositing_window == "dekad":
+        if self.composite_window == "dekad":
             days, months, years = self._get_dekadal_dates(start_date)
-        elif self.compositing_window == "month":
+        elif self.composite_window == "month":
             days, months, years = self._get_monthly_dates(start_date)
         else:
-            raise ValueError(f"Unknown compositing window: {self.compositing_window}")
+            raise ValueError(f"Unknown compositing window: {self.composite_window}")
 
         return np.stack([days, months, years], axis=1)
 
@@ -368,8 +372,8 @@ class ScaleAgInferenceDataset(Dataset):
         "AGERA5-TMEAN": "temperature",
     }
     
-    def __init__(self, compositing_window: Literal["dekad", "month"] = "dekad"):
-        self.compositing_window = compositing_window
+    def __init__(self, composite_window: Literal["dekad", "month"] = "dekad"):
+        self.composite_window = composite_window
         
     def __len__(self):
         return len(self.all_files)
@@ -437,17 +441,17 @@ class ScaleAgInferenceDataset(Dataset):
         month = np.datetime64(dt_in, "D").astype("object").month
         day = np.datetime64(dt_in, "D").astype("object").day
 
-        if self.compositing_window == "dekad":
+        if self.composite_window == "dekad":
             if day <= 10:
                 correct_date = np.datetime64(f"{year}-{month:02d}-01")
             elif 11 <= day <= 20:
                 correct_date = np.datetime64(f"{year}-{month:02d}-11")
             else:
                 correct_date = np.datetime64(f"{year}-{month:02d}-21")
-        elif self.compositing_window == "month":
+        elif self.composite_window == "month":
             correct_date = np.datetime64(f"{year}-{month:02d}-01")
         else:
-            raise ValueError(f"Unknown compositing window: {self.compositing_window}")
+            raise ValueError(f"Unknown compositing window: {self.composite_window}")
 
         return correct_date
 
@@ -494,12 +498,12 @@ class ScaleAgInferenceDataset(Dataset):
         start_date = self._get_correct_date(date)
 
         # Generate date vector depending on the compositing window
-        if self.compositing_window == "dekad":
+        if self.composite_window == "dekad":
             days, months, years = self._get_dekadal_dates(start_date, num_timesteps)
-        elif self.compositing_window == "month":
+        elif self.composite_window == "month":
             days, months, years = self._get_monthly_dates(start_date, num_timesteps)
         else:
-            raise ValueError(f"Unknown compositing window: {self.compositing_window}")
+            raise ValueError(f"Unknown compositing window: {self.composite_window}")
         
         return np.stack([days, months, years], axis=1)
     
