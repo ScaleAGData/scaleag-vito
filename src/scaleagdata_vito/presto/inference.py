@@ -58,7 +58,7 @@ class PrestoPredictor:
         self.model.eval()
         for batch in dl:
             with torch.no_grad():
-                output = self.model(batch, inference=True)
+                output = self.model(batch)
                 # binary classification
                 if self.task_type == "binary":
                     probs = torch.sigmoid(output).cpu().numpy()                

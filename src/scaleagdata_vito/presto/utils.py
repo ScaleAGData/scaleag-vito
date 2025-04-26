@@ -157,7 +157,7 @@ def finetune_on_task(
     output_dir: Union[Path, str],
     experiment_name: str,
     pretrained_model_path: Union[Path, str, None] = None,
-    max_epochs: int = 100,
+    max_epochs: int = 50,
     batch_size: int = 100,
     patience: int = 3,
     num_workers: int = 2
@@ -248,7 +248,7 @@ def evaluate_downstream_model(
     return metrics
 
 
-def train_test_val_split(df, group_sample_by=None, uniform_sample_by=None, sampling_frac=0.8, n=5):
+def train_test_val_split(df, group_sample_by=None, uniform_sample_by=None, sampling_frac=0.8, nmin_per_class=5):
     """
     Splits the data into train, val and test sets.
     The split is done based on the unique parentname values.
@@ -269,11 +269,11 @@ def train_test_val_split(df, group_sample_by=None, uniform_sample_by=None, sampl
         
     elif uniform_sample_by is not None:
         group_counts = df[uniform_sample_by].value_counts()
-        valid_groups = group_counts[group_counts >= n].index
+        valid_groups = group_counts[group_counts >= nmin_per_class].index
         if len(valid_groups) != len(group_counts):
-            logger.warning(f"Some groups have less than {n} samples. They will be excluded from the split.")
+            logger.warning(f"Some groups have less than {nmin_per_class} samples. They will be excluded from the split.")
         else:
-            logger.info(f"All groups have at least {n} samples. Proceeding with the split.")
+            logger.info(f"All groups have at least {nmin_per_class} samples. Proceeding with the split.")
         df_sample = df[df[uniform_sample_by].isin(valid_groups)].reset_index(drop=True)
         df_train = df_sample.groupby(uniform_sample_by).sample(frac=sampling_frac, random_state=3)
         df_val_test = df_sample[~df_sample.index.isin(df_train.index)]
