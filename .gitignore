@@ -9,7 +9,7 @@ tmp
 *.pkl
 *.mep2
 *.tig
-*.tif
+# *.tif
 *.jp2
 *.npy
 *.png
@@ -17,7 +17,7 @@ tmp
 *.csv
 *.tsv
 *.tfevents
-*.nc
+# *.nc
 *.gif
 slurm*
 *.tar.gz
