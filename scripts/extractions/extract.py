@@ -26,11 +26,13 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--start_date",
-        type=str,
+        type=Union[str, None],
+        default=None,
     )
     parser.add_argument(
         "--end_date",
-        type=str,
+        type=Union[str, None],
+        default=None,
     )
     parser.add_argument(
         "--spatial_extent",

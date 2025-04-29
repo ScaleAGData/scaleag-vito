@@ -136,8 +136,8 @@ def generate_output_path_sample_scaleag(
 def create_job_dataframe_sample_scaleag(
     backend: Backend,
     split_jobs: List[gpd.GeoDataFrame],
-    start_date_user: str,
-    end_date_user: str,
+    start_date_user: Union[str, None],
+    end_date_user: Union[str, None],
     composite_window: str = "dekad",
 ) -> pd.DataFrame:
     """Create a dataframe from the split jobs, containg all the necessary information to run the job."""
@@ -163,8 +163,13 @@ def create_job_dataframe_sample_scaleag(
             # set again as string so that it is json serializable
             job["original_date"] = job.original_date.dt.strftime("%Y-%m-%d")
         else:
-            start_date = datetime.strptime(start_date_user, "%Y-%m-%d")
-            end_date = datetime.strptime(end_date_user, "%Y-%m-%d")
+            if start_date_user is None or end_date_user is None:
+                raise ValueError(
+                    "Start and end dates are required when no date column is present."
+                )
+            else:
+                start_date = datetime.strptime(start_date_user, "%Y-%m-%d")
+                end_date = datetime.strptime(end_date_user, "%Y-%m-%d")
 
         # ensure start date is 1st day of month, end date is last day of month
         start_date = start_date.replace(day=1)
@@ -519,13 +524,16 @@ def extract(args):
 
 
 def generate_input_for_extractions(input_dict):
+    start_date = None if "start_date" not in input_dict.keys() else input_dict["start_date"]
+    end_date = None if "end_date" not in input_dict.keys() else input_dict["end_date"]
+    
     job_inputs = pd.Series(
         {
             "collection": ExtractionCollection.SAMPLE_SCALEAG,
             "output_folder": Path(input_dict["output_folder"]),
             "input_df": Path(input_dict["input_df"]),
-            "start_date": input_dict["start_date"],
-            "end_date": input_dict["end_date"],
+            "start_date": start_date,
+            "end_date": end_date,
             "max_locations": 50,
             "memory": "1800m",
             "python_memory": "1900m",

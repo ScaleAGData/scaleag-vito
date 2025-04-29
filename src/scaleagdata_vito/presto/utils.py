@@ -314,3 +314,6 @@ def get_pretrained_model_url(composite_window: Literal["dekad", "month"]):
             return "https://artifactory.vgt.vito.be/artifactory/auxdata-public/scaleagdata/models/presto-ss-wc_30D.pt"
         except:
             return dir / "presto-ss-wc_30D.pt"
+        
+def get_resources_dir():
+    return dir 
