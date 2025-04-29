@@ -3,6 +3,7 @@ from typing import Any, List, Literal, Optional, Tuple, Union
 
 import numpy as np
 import pandas as pd
+import rasterio as rio
 import xarray as xr
 from einops import rearrange
 from loguru import logger
@@ -378,7 +379,7 @@ class ScaleAgInferenceDataset(Dataset):
     def __len__(self):
         return len(self.all_files)
   
-    def nc_to_array(self, filepath: Path):
+    def nc_to_array(self, filepath: Path, mask_path: Union[str, Path, None]=None) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         inarr = xr.open_dataset(filepath)
         epsg = CRS.from_wkt(inarr.crs.attrs["crs_wkt"]).to_epsg()
         inarr = (
@@ -386,16 +387,19 @@ class ScaleAgInferenceDataset(Dataset):
             .to_array(dim="bands")
             .drop_sel(bands="crs")
         )
-        return self._get_predictors(inarr, epsg)
+        return self._get_predictors(inarr, epsg, mask_path)
         
     
-    def _get_predictors(self, inarr: xr.DataArray, epsg: int) -> List[np.ndarray]:
+    def _get_predictors(self, inarr: xr.DataArray, epsg: int, mask_path: Union[str, Path, None]=None) -> List[np.ndarray]:
         num_pixels = len(inarr.x) * len(inarr.y)
         num_timesteps = len(inarr.t)
 
         # Handle NaN values in Presto compatible way
         inarr = inarr.astype(np.float32)
-        inarr = inarr.fillna(65535)
+        if mask_path is not None:
+            mask = rio.open(mask_path).read(1).astype(bool)
+            inarr = inarr.where(mask, other=NODATAVALUE)
+        inarr = inarr.fillna(NODATAVALUE)
         
         s1, s2, meteo, dem = self.initialize_inputs(num_pixels, num_timesteps)
         latlon = self._extract_latlons(inarr, epsg)

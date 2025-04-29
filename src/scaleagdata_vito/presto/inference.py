@@ -38,9 +38,9 @@ class PrestoPredictor:
         self.task_type = task_type
         self.composite_window = composite_window
 
-    def predict(self, path_to_file: Path, upper_bound: Union[float, None]=None, lower_bound: Union[float, None]=None) -> np.ndarray:
+    def predict(self, path_to_file: Path, upper_bound: Union[float, None]=None, lower_bound: Union[float, None]=None, mask_path: Union[str, Path, None]=None) -> np.ndarray:
         cl = ScaleAgInferenceDataset(composite_window=self.composite_window)
-        s1_cube, s2_cube, meteo_cube, dem_cube, latlon_cube, timestamps_cube = cl.nc_to_array(path_to_file)
+        s1_cube, s2_cube, meteo_cube, dem_cube, latlon_cube, timestamps_cube = cl.nc_to_array(path_to_file, mask_path=mask_path)
         ds = InferenceDataset(s1_cube,
                               s2_cube,
                               meteo_cube,
