@@ -464,14 +464,14 @@ def extract(args):
 
     tracking_df_path = Path(args.output_folder) / "job_tracking.csv"
 
-    # Load the input dataframe and build the job dataframe
-    if args.routine == "training":
-        assert args.input_df != "", "Input dataframe is required for the training routine."
-        input_df = load_dataframe(args.input_df)
+    # # Load the input dataframe and build the job dataframe
+    # if args.routine == "training":
+    #     assert args.input_df != "", "Input dataframe is required for the training routine."
+    input_df = load_dataframe(args.input_df)
         
-    if input_df["sample_id"] != "":
-        input_df["sample_id"] = input_df[args.unique_id_column]
-        assert input_df["sample_id"].is_unique, "The unique ID column is not unique."
+    # if input_df[args.unique_id_column] != "":
+    input_df["sample_id"] = input_df[args.unique_id_column]
+    assert input_df["sample_id"].is_unique, "The unique ID column is not unique."
 
     job_df = None
     if not tracking_df_path.exists():

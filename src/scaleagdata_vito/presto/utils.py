@@ -1,3 +1,4 @@
+import os
 import random
 from pathlib import Path
 from typing import Literal, Union
@@ -30,6 +31,7 @@ from torch import nn
 from torch.optim import AdamW, lr_scheduler
 from torch.utils.data import DataLoader
 
+dir = Path(os.path.dirname(os.path.realpath(__file__))).parent.parent.parent / "resources"
 
 def predict_with_head(
     dl: DataLoader,
@@ -148,7 +150,7 @@ def load_finetuned_model(
             num_outputs=num_outputs,
             regression=False,
         )
-    return load_pretrained(model,f'{model_path}.pt', strict=False)
+    return load_pretrained(model, f'{model_path}.pt', strict=False)
     
     
 def finetune_on_task(
@@ -299,3 +301,16 @@ def plot_distribution(df, target_name, upper_bound=None, lower_bound=None):
         plt.legend()
     plt.title(target_name)
     plt.show()
+    
+
+def get_pretrained_model_url(composite_window: Literal["dekad", "month"]):
+    if composite_window == "dekad":
+        try:
+            return "https://artifactory.vgt.vito.be/artifactory/auxdata-public/scaleagdata/models/presto-ss-wc_10D.pt"
+        except:
+            return dir / "presto-ss-wc_10D.pt"
+    else:
+        try:
+            return "https://artifactory.vgt.vito.be/artifactory/auxdata-public/scaleagdata/models/presto-ss-wc_30D.pt"
+        except:
+            return dir / "presto-ss-wc_30D.pt"
