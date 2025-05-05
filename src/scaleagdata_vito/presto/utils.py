@@ -16,7 +16,7 @@ from prometheo.models.presto import param_groups_lrd
 from prometheo.models.presto.wrapper import (
     PretrainedPrestoWrapper,
     dataset_to_model,
-    load_pretrained,
+    load_presto_weights,
 )
 from prometheo.predictors import collate_fn, to_torchtensor
 from prometheo.utils import device
@@ -150,7 +150,7 @@ def load_finetuned_model(
             num_outputs=num_outputs,
             regression=False,
         )
-    return load_pretrained(model, f'{model_path}.pt', strict=False)
+    return load_presto_weights(model, f'{model_path}.pt', strict=False)
     
     
 def finetune_on_task(
@@ -164,30 +164,38 @@ def finetune_on_task(
     patience: int = 3,
     num_workers: int = 2
     ):
+    
+    composite_window = train_ds.composite_window
+    
     if train_ds.task_type == "regression":
-        model = PretrainedPrestoWrapper(
-            num_outputs=1,
-            regression=True,
-        )
+        regression = True
+        num_outputs = 1
         loss_fn = nn.MSELoss()
     elif train_ds.task_type == "binary":
-        model = PretrainedPrestoWrapper(
-            num_outputs=1,
-            regression=False,
-            pretrained_model_path=pretrained_model_path, ###### TODO fix loading old models 
-        )
+        regression = False
+        num_outputs = 1
         loss_fn = nn.BCEWithLogitsLoss()
     else:
-        model = PretrainedPrestoWrapper(
-            num_outputs=train_ds.num_outputs,
-            regression=False,
-        )
+        regression = False
+        num_outputs = train_ds.num_outputs
         loss_fn = nn.CrossEntropyLoss()
     
-    if pretrained_model_path is not None and train_ds.task_type == "regression": ######## TODO fix loading old models, remove second if
-        model = load_pretrained(model, pretrained_model_path, strict=False) 
-    elif train_ds.task_type == "regression":
-        logger.warning("No pretrained model provided. Using random weights.")
+    if pretrained_model_path is None:
+        logger.info("No pretrained model path provided. Using randomly initialized model.")   
+         
+    if composite_window == "dekad":
+        model = PretrainedPrestoWrapper(
+            num_outputs=num_outputs,
+            regression=regression,
+        )
+        model = load_presto_weights(model, pretrained_model_path, strict=False)
+    else:
+        model = PretrainedPrestoWrapper(
+            num_outputs=num_outputs,
+            regression=regression,
+            pretrained_model_path=pretrained_model_path, 
+        )
+
     hyperparams = Hyperparams(
         max_epochs=max_epochs,
         batch_size=batch_size,
