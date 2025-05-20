@@ -30,8 +30,8 @@ PLOT_BAND_MAPPING = {
     'S2-L2A-B12': 'B12',
     'S1-SIGMA0-VV': 'VV',
     'S1-SIGMA0-VH': 'VH',
-    'slope': 'elevation',
-    'elevation': 'slope',
+    'slope': 'slope',
+    'elevation': 'elevation',
     'AGERA5-PRECIP': 'avg temperature',
     'AGERA5-TMEAN': 'precipitation (mm3)',
     'NDVI': 'NDVI'
