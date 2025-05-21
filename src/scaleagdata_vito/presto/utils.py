@@ -31,7 +31,10 @@ from torch import nn
 from torch.optim import AdamW, lr_scheduler
 from torch.utils.data import DataLoader
 
-dir = Path(os.path.dirname(os.path.realpath(__file__))).parent.parent.parent / "resources"
+dir = (
+    Path(os.path.dirname(os.path.realpath(__file__))).parent.parent.parent / "resources"
+)
+
 
 def predict_with_head(
     dl: DataLoader,
@@ -124,6 +127,7 @@ def evaluate_finetuned_model(
 
     return metrics
 
+
 def load_finetuned_model(
     model_path: Union[Path, str],
     task_type: Literal["regression", "binary", "multiclass"] = "regression",
@@ -150,7 +154,7 @@ def load_finetuned_model(
             num_outputs=num_outputs,
             regression=False,
         )
-    return load_presto_weights(model, f'{model_path}.pt', strict=False)
+    return load_presto_weights(model, f"{model_path}.pt", strict=False)
 
 
 def finetune_on_task(
@@ -162,8 +166,8 @@ def finetune_on_task(
     max_epochs: int = 50,
     batch_size: int = 100,
     patience: int = 3,
-    num_workers: int = 2
-    ):
+    num_workers: int = 2,
+):
 
     composite_window = train_ds.composite_window
 
@@ -181,7 +185,9 @@ def finetune_on_task(
         loss_fn = nn.CrossEntropyLoss()
 
     if pretrained_model_path is None:
-        logger.info("No pretrained model path provided. Using randomly initialized model.")
+        logger.info(
+            "No pretrained model path provided. Using randomly initialized model."
+        )
 
     if composite_window == "dekad":
         model = PretrainedPrestoWrapper(
@@ -200,25 +206,25 @@ def finetune_on_task(
         max_epochs=max_epochs,
         batch_size=batch_size,
         patience=patience,
-        num_workers=num_workers
-        )
+        num_workers=num_workers,
+    )
     parameters = param_groups_lrd(model)
     optimizer = AdamW(parameters, lr=hyperparams.lr)
     scheduler = lr_scheduler.ExponentialLR(optimizer, gamma=0.99)
 
     logger.info(f"Finetuning the model on {train_ds.task_type} task")
     finetuned_model = finetune.run_finetuning(
-                model=model,
-                train_ds=train_ds,
-                val_ds=val_ds,
-                experiment_name=experiment_name,
-                output_dir=output_dir,
-                loss_fn=loss_fn,
-                optimizer=optimizer,
-                scheduler=scheduler,
-                hyperparams=hyperparams,
-                setup_logging=False,  # Already setup logging
-            )
+        model=model,
+        train_ds=train_ds,
+        val_ds=val_ds,
+        experiment_name=experiment_name,
+        output_dir=output_dir,
+        loss_fn=loss_fn,
+        optimizer=optimizer,
+        scheduler=scheduler,
+        hyperparams=hyperparams,
+        setup_logging=False,  # Already setup logging
+    )
     return finetuned_model
 
 
@@ -258,7 +264,13 @@ def evaluate_downstream_model(
     return metrics
 
 
-def train_test_val_split(df, group_sample_by=None, uniform_sample_by=None, sampling_frac=0.8, nmin_per_class=5):
+def train_test_val_split(
+    df,
+    group_sample_by=None,
+    uniform_sample_by=None,
+    sampling_frac=0.8,
+    nmin_per_class=5,
+):
     """
     Splits the data into train, val and test sets.
     The split is done based on the unique parentname values.
@@ -266,14 +278,18 @@ def train_test_val_split(df, group_sample_by=None, uniform_sample_by=None, sampl
     random.seed(3)
     if group_sample_by is not None:
         parentnames = df[group_sample_by].unique()
-        parentname_train = random.sample(list(parentnames), int(len(parentnames)*sampling_frac))
+        parentname_train = random.sample(
+            list(parentnames), int(len(parentnames) * sampling_frac)
+        )
         df_sample = df.copy()
         df_train = df_sample[df_sample[group_sample_by].isin(parentname_train)]
 
         # split in val and test
         df_val_test = df_sample[~df_sample[group_sample_by].isin(parentname_train)]
         parentname_val_test = df_val_test[group_sample_by].unique()
-        parentname_val = random.sample(list(parentname_val_test), int(len(parentname_val_test)*0.5))
+        parentname_val = random.sample(
+            list(parentname_val_test), int(len(parentname_val_test) * 0.5)
+        )
         df_val = df_val_test[df_val_test[group_sample_by].isin(parentname_val)]
         df_test = df_val_test[~df_val_test[group_sample_by].isin(parentname_val)]
 
@@ -281,16 +297,24 @@ def train_test_val_split(df, group_sample_by=None, uniform_sample_by=None, sampl
         group_counts = df[uniform_sample_by].value_counts()
         valid_groups = group_counts[group_counts >= nmin_per_class].index
         if len(valid_groups) != len(group_counts):
-            logger.warning(f"Some groups have less than {nmin_per_class} samples. They will be excluded from the split.")
+            logger.warning(
+                f"Some groups have less than {nmin_per_class} samples. They will be excluded from the split."
+            )
         else:
-            logger.info(f"All groups have at least {nmin_per_class} samples. Proceeding with the split.")
+            logger.info(
+                f"All groups have at least {nmin_per_class} samples. Proceeding with the split."
+            )
         df_sample = df[df[uniform_sample_by].isin(valid_groups)].reset_index(drop=True)
-        df_train = df_sample.groupby(uniform_sample_by).sample(frac=sampling_frac, random_state=3)
+        df_train = df_sample.groupby(uniform_sample_by).sample(
+            frac=sampling_frac, random_state=3
+        )
         df_val_test = df_sample[~df_sample.index.isin(df_train.index)]
         df_val = df_val_test.groupby(uniform_sample_by).sample(frac=0.5, random_state=3)
         df_test = df_val_test[~df_val_test.index.isin(df_val.index)]
     else:
-        raise ValueError("Either group_sample_by or uniform_sample_by must be provided to split the data.")
+        raise ValueError(
+            "Either group_sample_by or uniform_sample_by must be provided to split the data."
+        )
 
     logger.info(f"Training set size: {len(df_train)}")
     logger.info(f"Validation set size: {len(df_val)}")
@@ -303,9 +327,9 @@ def plot_distribution(df, target_name, upper_bound=None, lower_bound=None):
     plt.figure(figsize=(8, 4))
     sns.histplot(df[target_name], bins=30, kde=True)
     if upper_bound is not None:
-        plt.axvline(x=upper_bound, color='r', linestyle='--', label='Upper Bound')
+        plt.axvline(x=upper_bound, color="r", linestyle="--", label="Upper Bound")
     if lower_bound is not None:
-        plt.axvline(x=lower_bound, color='g', linestyle='--', label='Lower Bound')
+        plt.axvline(x=lower_bound, color="g", linestyle="--", label="Lower Bound")
         plt.legend()
     plt.title(target_name)
     plt.show()
@@ -322,6 +346,7 @@ def get_pretrained_model_url(composite_window: Literal["dekad", "month"]):
             return "https://artifactory.vgt.vito.be/artifactory/auxdata-public/scaleagdata/models/presto-ss-wc_30D.pt"
         except:
             return dir / "presto-ss-wc_30D.pt"
+
 
 def get_resources_dir():
     return dir

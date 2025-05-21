@@ -101,8 +101,8 @@ class ScaleAgDataset(Dataset):
                 lower_bound is not None
             ), "upper_bound and lower_bound must be provided for the target normalization"
             # if upper_bound is None or lower_bound is None:
-                # upper_bound = self.dataframe[target_name].max()
-                # lower_bound = self.dataframe[target_name].min()
+            # upper_bound = self.dataframe[target_name].max()
+            # lower_bound = self.dataframe[target_name].min()
             self.lower_bound = lower_bound
             self.upper_bound = upper_bound
             self.dataframe[target_name] = self.dataframe[target_name].clip(
@@ -379,18 +379,17 @@ class ScaleAgInferenceDataset(Dataset):
     def __len__(self):
         return len(self.all_files)
 
-    def nc_to_array(self, filepath: Path, mask_path: Union[str, Path, None]=None) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    def nc_to_array(
+        self, filepath: Path, mask_path: Union[str, Path, None] = None
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         inarr = xr.open_dataset(filepath)
         epsg = CRS.from_wkt(inarr.crs.attrs["crs_wkt"]).to_epsg()
-        inarr = (
-            inarr
-            .to_array(dim="bands")
-            .drop_sel(bands="crs")
-        )
+        inarr = inarr.to_array(dim="bands").drop_sel(bands="crs")
         return self._get_predictors(inarr, epsg, mask_path)
 
-
-    def _get_predictors(self, inarr: xr.DataArray, epsg: int, mask_path: Union[str, Path, None]=None) -> List[np.ndarray]:
+    def _get_predictors(
+        self, inarr: xr.DataArray, epsg: int, mask_path: Union[str, Path, None] = None
+    ) -> List[np.ndarray]:
         num_pixels = len(inarr.x) * len(inarr.y)
         num_timesteps = len(inarr.t)
 
@@ -412,10 +411,10 @@ class ScaleAgInferenceDataset(Dataset):
             # retrieve ts for each band column df_val
             if src_attr in inarr.bands.values:
                 values = np.swapaxes(
-                        inarr.sel(bands=src_attr).values.reshape((num_timesteps, -1)),
-                        0,
-                        1,
-                    )
+                    inarr.sel(bands=src_attr).values.reshape((num_timesteps, -1)),
+                    0,
+                    1,
+                )
                 # values = np.nan_to_num(values, nan=NODATAVALUE)
                 idx_valid = values != NODATAVALUE
                 if dst_attr in S2_BANDS:
@@ -431,9 +430,13 @@ class ScaleAgInferenceDataset(Dataset):
                         meteo, dst_attr, values, idx_valid
                     )
                 elif dst_attr in DEM_BANDS:
-                    dem = self.openeo_to_prometheo_units(dem, dst_attr, values, idx_valid)
+                    dem = self.openeo_to_prometheo_units(
+                        dem, dst_attr, values, idx_valid
+                    )
         # extend the dimension of the timestamp array to match the number of pixels
-        timestamps = np.repeat(self.get_date_array(inarr, num_timesteps)[np.newaxis, :, :], num_pixels, 0)
+        timestamps = np.repeat(
+            self.get_date_array(inarr, num_timesteps)[np.newaxis, :, :], num_pixels, 0
+        )
         return s1, s2, meteo, dem, latlon, timestamps
 
     def _get_correct_date(self, dt_in: str) -> np.datetime64:
@@ -483,9 +486,7 @@ class ScaleAgInferenceDataset(Dataset):
         # truncate to month precision
         start_month = np.datetime64(start_date, "M")
         # generate date vector based on the number of timesteps
-        date_vector = start_month + np.arange(
-            num_timesteps, dtype="timedelta64[M]"
-        )
+        date_vector = start_month + np.arange(num_timesteps, dtype="timedelta64[M]")
 
         # generate day, month and year vectors with numpy operations
         days = np.ones(num_timesteps, dtype=int)
@@ -498,7 +499,7 @@ class ScaleAgInferenceDataset(Dataset):
         Generate an array of dates based on the specified compositing window.
         """
         # adjust start date depending on the compositing window
-        date = str(inarr.t.values[0].astype('datetime64[D]'))
+        date = str(inarr.t.values[0].astype("datetime64[D]"))
         start_date = self._get_correct_date(date)
 
         # Generate date vector depending on the compositing window
@@ -552,7 +553,6 @@ class ScaleAgInferenceDataset(Dataset):
             raise ValueError(f"Unknown band {band}")
         return band_array
 
-
     def initialize_inputs(self, num_pix: int, num_timesteps: int):
         s1 = np.full(
             (num_pix, 1, 1, num_timesteps, len(S1_BANDS)),
@@ -569,21 +569,27 @@ class ScaleAgInferenceDataset(Dataset):
             fill_value=NODATAVALUE,
             dtype=np.float32,
         )
-        dem = np.full((num_pix, 1, 1, len(DEM_BANDS)), fill_value=NODATAVALUE, dtype=np.float32)
+        dem = np.full(
+            (num_pix, 1, 1, len(DEM_BANDS)), fill_value=NODATAVALUE, dtype=np.float32
+        )
         return s1, s2, meteo, dem
+
 
 class InferenceDataset(Dataset):
     def __init__(self, s1, s2, meteo, dem, latlon, timestamps):
         self.data = [
-            Predictors(**dict(
-                s1=s1[i],
-                s2=s2[i],
-                meteo=meteo[i],
-                dem=dem[i],
-                latlon=latlon[i],
-                timestamps=timestamps[i],
-            ))
-            for i in range(len(s1))]
+            Predictors(
+                **dict(
+                    s1=s1[i],
+                    s2=s2[i],
+                    meteo=meteo[i],
+                    dem=dem[i],
+                    latlon=latlon[i],
+                    timestamps=timestamps[i],
+                )
+            )
+            for i in range(len(s1))
+        ]
 
     def __getitem__(self, idx):
         return self.data[idx]

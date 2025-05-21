@@ -523,7 +523,9 @@ def extract(args):
 
 
 def generate_input_for_extractions(input_dict):
-    start_date = None if "start_date" not in input_dict.keys() else input_dict["start_date"]
+    start_date = (
+        None if "start_date" not in input_dict.keys() else input_dict["start_date"]
+    )
     end_date = None if "end_date" not in input_dict.keys() else input_dict["end_date"]
 
     job_inputs = pd.Series(
@@ -547,6 +549,7 @@ def generate_input_for_extractions(input_dict):
     )
 
     return job_inputs
+
 
 def generate_extraction_job_command(
     job_params, extraction_script_path="scaleag-vito/scripts/extractions/extract.py"
@@ -603,7 +606,7 @@ def collect_inputs_for_inference(
         temporal_extent=temporal_extent,
         tile_size=tile_size,
         composite_window=composite_window,
-        fetch_type=FetchType.TILE
+        fetch_type=FetchType.TILE,
     )
 
     inputs = inputs.filter_bbox(dict(spatial_extent))

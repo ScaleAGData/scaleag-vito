@@ -18,26 +18,27 @@ BANDS = {
 }
 
 PLOT_BAND_MAPPING = {
-    'S2-L2A-B02': 'B2',
-    'S2-L2A-B03': 'B3',
-    'S2-L2A-B04': 'B4',
-    'S2-L2A-B05': 'B5',
-    'S2-L2A-B06': 'B6',
-    'S2-L2A-B07': 'B7',
-    'S2-L2A-B08': 'B8',
-    'S2-L2A-B8A': 'B8A',
-    'S2-L2A-B11': 'B11',
-    'S2-L2A-B12': 'B12',
-    'S1-SIGMA0-VV': 'VV',
-    'S1-SIGMA0-VH': 'VH',
-    'slope': 'slope',
-    'elevation': 'elevation',
-    'AGERA5-PRECIP': 'avg temperature',
-    'AGERA5-TMEAN': 'precipitation (mm3)',
-    'NDVI': 'NDVI'
-    }
+    "S2-L2A-B02": "B2",
+    "S2-L2A-B03": "B3",
+    "S2-L2A-B04": "B4",
+    "S2-L2A-B05": "B5",
+    "S2-L2A-B06": "B6",
+    "S2-L2A-B07": "B7",
+    "S2-L2A-B08": "B8",
+    "S2-L2A-B8A": "B8A",
+    "S2-L2A-B11": "B11",
+    "S2-L2A-B12": "B12",
+    "S1-SIGMA0-VV": "VV",
+    "S1-SIGMA0-VH": "VH",
+    "slope": "slope",
+    "elevation": "elevation",
+    "AGERA5-PRECIP": "avg temperature",
+    "AGERA5-TMEAN": "precipitation (mm3)",
+    "NDVI": "NDVI",
+}
 
 NODATAVALUE = 65535
+
 
 def _apply_band_scaling(array: np.array, bandname: str) -> np.array:
     """Apply scaling to the band values based on the band name.
@@ -117,7 +118,7 @@ def get_band_statistics(
                 mean = np.mean(scaled_values) if len(scaled_values) > 0 else 0
                 std = np.std(scaled_values) if len(scaled_values) > 0 else 0
                 band_stats[bandname] = {
-                    "band" : bandname,
+                    "band": bandname,
                     "%_nodata": f"{nodata_percentage:.2f}",
                     "min": f"{min:.2f}",
                     "max": f"{max:.2f}",
@@ -129,7 +130,7 @@ def get_band_statistics(
 
     # Convert to DataFrame
     stats_df = pd.DataFrame(band_stats).T
-    print(tabulate(stats_df, headers='keys', tablefmt='psql', showindex=False))
+    print(tabulate(stats_df, headers="keys", tablefmt="psql", showindex=False))
 
     return stats_df
 
@@ -198,7 +199,7 @@ def check_job_status(output_folder: Path) -> dict:
     status_count = pd.DataFrame(status_histogram.items(), columns=["status", "count"])
     status_count = status_count.sort_values(by="count", ascending=False)
 
-    print(tabulate(status_count, headers='keys', tablefmt='psql', showindex=False))
+    print(tabulate(status_count, headers="keys", tablefmt="psql", showindex=False))
 
     return status_histogram
 
@@ -304,7 +305,9 @@ def compute_ndvi(gdf):
 
 
 def visualize_timeseries(gdf: gpd.GeoDataFrame, sample_id: str) -> None:
-    sample_data = gdf[gdf["sample_id"] == sample_id].replace(65535, 0).sort_values(by="timestamp")
+    sample_data = (
+        gdf[gdf["sample_id"] == sample_id].replace(65535, 0).sort_values(by="timestamp")
+    )
     # checked order in code
 
     months = sample_data["timestamp"].dt.month
@@ -323,7 +326,9 @@ def visualize_timeseries(gdf: gpd.GeoDataFrame, sample_id: str) -> None:
         12: "Dec",
     }
 
-    fig, axes = plt.subplots(nrows=4, ncols=5, figsize=(20, 15))  # Adjust size as needed
+    fig, axes = plt.subplots(
+        nrows=4, ncols=5, figsize=(20, 15)
+    )  # Adjust size as needed
     axes = axes.flatten()  # Flatten the 2D array of axes to iterate easily
     x_ticks = [months_mapping[m] for m in months]
 
@@ -335,7 +340,7 @@ def visualize_timeseries(gdf: gpd.GeoDataFrame, sample_id: str) -> None:
             data = compute_ndvi(sample_data)
         sns.lineplot(
             x=np.arange(len(months)),
-            y= data,
+            y=data,
             ax=axes[i],
             alpha=0.5,
             linewidth=3,

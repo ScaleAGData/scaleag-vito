@@ -13,6 +13,7 @@ def check_unique_id(df_path, unique_id):
         logger.info("IDs are unique")
         return None
 
+
 def check_valid_geometry(df):
     if isinstance(df, str):
         df = gpd.read_file(df)
@@ -20,7 +21,7 @@ def check_valid_geometry(df):
     # Assessing wheather some invalid geometries are present
     if len(df_invalid) > 0:
         # 1) some invalid geometries are present. Attempt fixing them
-        df['geometry'] = df.geometry.buffer(0)
+        df["geometry"] = df.geometry.buffer(0)
         df_invalid = df[~df.geometry.is_valid]
         df_valid = df[df.geometry.is_valid]
         if len(df_invalid) > 0:
@@ -36,8 +37,9 @@ def check_valid_geometry(df):
         logger.info("All geometries are valid")
         return gpd.GeoDataFrame(), df
 
-def _save(save_to, original_file_path, df, suffix=''):
-    if suffix!='':
+
+def _save(save_to, original_file_path, df, suffix=""):
+    if suffix != "":
         filename = Path(save_to) / f"{Path(original_file_path).stem}_{suffix}.geojson"
     else:
         filename = Path(save_to) / f"{Path(original_file_path).stem}.geojson"
