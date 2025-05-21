@@ -86,7 +86,9 @@ class PrestoPredictor:
         all_probs = np.concatenate(all_probs)
         return all_probs
 
-    def get_predictions(self, probs: np.ndarray, threshold: int = 0.5) -> xr.DataArray:
+    def get_predictions(
+        self, probs: np.ndarray, threshold: float = 0.5
+    ) -> xr.DataArray:
         if self.task_type == "binary":
             preds = probs > threshold
         elif self.task_type == "multiclass":

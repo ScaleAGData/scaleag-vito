@@ -1,16 +1,8 @@
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 
-from geojson import GeoJSON
 from openeo import UDF, Connection, DataCube
-from openeo_gfmap import (
-    Backend,
-    BackendContext,
-    BoundingBoxExtent,
-    FetchType,
-    SpatialContext,
-    TemporalContext,
-)
+from openeo_gfmap import Backend, BackendContext, FetchType, TemporalContext
 from openeo_gfmap.fetching.generic import build_generic_extractor
 from openeo_gfmap.fetching.s1 import build_sentinel1_grd_extractor
 from openeo_gfmap.fetching.s2 import build_sentinel2_l2a_extractor

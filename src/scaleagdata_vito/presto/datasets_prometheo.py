@@ -389,7 +389,7 @@ class ScaleAgInferenceDataset(Dataset):
 
     def _get_predictors(
         self, inarr: xr.DataArray, epsg: int, mask_path: Union[str, Path, None] = None
-    ) -> List[np.ndarray]:
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         num_pixels = len(inarr.x) * len(inarr.y)
         num_timesteps = len(inarr.t)
 

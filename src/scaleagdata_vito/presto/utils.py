@@ -339,12 +339,18 @@ def get_pretrained_model_url(composite_window: Literal["dekad", "month"]):
     if composite_window == "dekad":
         try:
             return "https://artifactory.vgt.vito.be/artifactory/auxdata-public/scaleagdata/models/presto-ss-wc_10D.pt"
-        except:
+        except Exception:
+            logger.warning(
+                "Could not access the pretrained model from the URL. Loading model from repository resources"
+            )
             return dir / "presto-ss-wc_10D.pt"
     else:
         try:
             return "https://artifactory.vgt.vito.be/artifactory/auxdata-public/scaleagdata/models/presto-ss-wc_30D.pt"
-        except:
+        except Exception:
+            logger.warning(
+                "Could not access the pretrained model from the URL. Loading model from repository resources"
+            )
             return dir / "presto-ss-wc_30D.pt"
 
 

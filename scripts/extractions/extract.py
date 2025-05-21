@@ -3,9 +3,6 @@ own functions, but the setup and main thread execution is done here."""
 
 import argparse
 from pathlib import Path
-from typing import Union
-
-from openeo_gfmap import SpatialContext
 
 from scaleagdata_vito.openeo.extract_sample_scaleag import ExtractionCollection, extract
 
@@ -26,17 +23,17 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--start_date",
-        type=Union[str, None],
+        type=str,
         default=None,
     )
     parser.add_argument(
         "--end_date",
-        type=Union[str, None],
+        type=str,
         default=None,
     )
     parser.add_argument(
         "--spatial_extent",
-        type=Union[SpatialContext, None],
+        type=str,
         default=None,
         help="The spatial extent to extract in the inference routine. If not provided, the extent of the input dataframe will be used.",
     )

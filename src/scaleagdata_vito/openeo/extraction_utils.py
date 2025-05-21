@@ -1,6 +1,6 @@
 import json
 from pathlib import Path
-from typing import Iterable, List, Optional
+from typing import Iterable
 
 import geopandas as gpd
 import matplotlib.pyplot as plt

@@ -621,8 +621,9 @@ def collect_inputs_for_inference(
     if job_options is not None:
         JOB_OPTIONS.update(job_options)
 
+    outputfile = Path(output_path) / f"{output_filename}"
     inputs.execute_batch(
-        outputfile=output_path / f"{output_filename}",
+        outputfile=outputfile,
         out_format="NetCDF",
         title="ScaleAgData collect inference inputs",
         description="Job that collects inputs for ScaleAg inference",
