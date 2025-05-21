@@ -1,31 +1,22 @@
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 
-from geojson import GeoJSON
 from openeo import UDF, Connection, DataCube
-from openeo_gfmap import (
-    Backend,
-    BackendContext,
-    BoundingBoxExtent,
-    FetchType,
-    SpatialContext,
-    TemporalContext,
-)
+from openeo_gfmap import Backend, BackendContext, FetchType, TemporalContext
 from openeo_gfmap.fetching.generic import build_generic_extractor
 from openeo_gfmap.fetching.s1 import build_sentinel1_grd_extractor
 from openeo_gfmap.fetching.s2 import build_sentinel2_l2a_extractor
 from openeo_gfmap.preprocessing.compositing import mean_compositing, median_compositing
 from openeo_gfmap.preprocessing.sar import compress_backscatter_uint16
-from openeo_gfmap.utils.catalogue import UncoveredS1Exception, select_s1_orbitstate_vvvh
 
 
 def raw_datacube_S2(
     connection: Connection,
     backend_context: BackendContext,
-    spatial_extent: SpatialContext,
     temporal_extent: TemporalContext,
     bands: List[str],
     fetch_type: FetchType,
+    # spatial_extent: Optional[SpatialContext] = None,
     filter_tile: Optional[str] = None,
     distance_to_cloud_flag: Optional[bool] = True,
     additional_masks_flag: Optional[bool] = True,
@@ -77,7 +68,6 @@ def raw_datacube_S2(
         collection_id="SENTINEL2_L2A",
         bands=["SCL"],
         temporal_extent=[temporal_extent.start_date, temporal_extent.end_date],
-        spatial_extent=dict(spatial_extent) if fetch_type == FetchType.TILE else None,
         properties=scl_cube_properties,
     )
 
@@ -115,12 +105,6 @@ def raw_datacube_S2(
 
         additional_masks = scl_dilated_mask.merge_cubes(distance_to_cloud)
 
-        # Try filtering using the geometry
-        if fetch_type == FetchType.TILE:
-            additional_masks = additional_masks.filter_spatial(
-                spatial_extent.to_geojson()
-            )
-
     if additional_masks_flag:
         extraction_parameters["pre_merge"] = additional_masks
 
@@ -143,17 +127,17 @@ def raw_datacube_S2(
         **extraction_parameters,
     )
 
-    return extractor.get_cube(connection, spatial_extent, temporal_extent)
+    return extractor.get_cube(connection, None, temporal_extent)
 
 
 def raw_datacube_S1(
     connection: Connection,
     backend_context: BackendContext,
-    spatial_extent: SpatialContext,
     temporal_extent: TemporalContext,
     bands: List[str],
     fetch_type: FetchType,
     target_resolution: float = 20.0,
+    # spatial_extent: Optional[SpatialContext] = None,
     orbit_direction: Optional[str] = None,
     tile_size: Optional[int] = None,
 ) -> DataCube:
@@ -185,21 +169,6 @@ def raw_datacube_S1(
     extractor_parameters: Dict[str, Any] = {
         "target_resolution": target_resolution,
     }
-    if orbit_direction is None and backend_context.backend in [
-        Backend.CDSE,
-        Backend.CDSE_STAGING,
-        Backend.FED,
-    ]:
-        try:
-            orbit_direction = select_s1_orbitstate_vvvh(
-                backend_context, spatial_extent, temporal_extent
-            )
-        except UncoveredS1Exception as exc:
-            orbit_direction = "ASCENDING"
-            print(
-                f"Could not find any Sentinel-1 data for the given spatio-temporal context. "
-                f"Using ASCENDING orbit direction as a last resort. Error: {exc}"
-            )
 
     if orbit_direction is not None:
         extractor_parameters["load_collection"] = {
@@ -220,14 +189,14 @@ def raw_datacube_S1(
         backend_context, bands=bands, fetch_type=fetch_type, **extractor_parameters
     )
 
-    return extractor.get_cube(connection, spatial_extent, temporal_extent)
+    return extractor.get_cube(connection, None, temporal_extent)
 
 
 def raw_datacube_DEM(
     connection: Connection,
     backend_context: BackendContext,
-    spatial_extent: SpatialContext,
     fetch_type: FetchType,
+    # spatial_extent: Optional[SpatialContext] = None,
 ) -> DataCube:
     extractor = build_generic_extractor(
         backend_context=backend_context,
@@ -245,19 +214,15 @@ def raw_datacube_DEM(
         openEO datacube with the DEM data (and slope if available).
     """
 
-    cube = extractor.get_cube(connection, spatial_extent, None)
+    cube = extractor.get_cube(connection, None, None)
     cube = cube.rename_labels(dimension="bands", target=["elevation"])
 
     if backend_context.backend == Backend.CDSE:
         # On CDSE we can load the slope from a global slope collection
         # but this currently only works for tile fetching.
 
-        if isinstance(spatial_extent, BoundingBoxExtent):
-            spatial_extent = dict(spatial_extent)
-
         slope = connection.load_stac(
             "https://stac.openeo.vito.be/collections/COPERNICUS30_DEM_SLOPE",
-            spatial_extent=spatial_extent,
             bands=["Slope"],
         ).rename_labels(dimension="bands", target=["slope"])
         # Client fix for CDSE, the openeo client might be unsynchronized with
@@ -275,9 +240,9 @@ def raw_datacube_DEM(
 
 def precomposited_datacube_METEO(
     connection: Connection,
-    spatial_extent: SpatialContext,
     temporal_extent: TemporalContext,
-    period: str = "decad",
+    # spatial_extent: Optional[SpatialContext] = None,
+    period: str = "dekad",
 ) -> DataCube:
     """Extract the precipitation and temperature AGERA5 data from a
     pre-composited and pre-processed collection. The data is stored in the
@@ -290,21 +255,18 @@ def precomposited_datacube_METEO(
           tiles.
     """
     temporal_extent = [temporal_extent.start_date, temporal_extent.end_date]
-    spatial_extent = dict(spatial_extent)
 
     if period == "dekad":
         # Dekadal composited METEO data
         cube = connection.load_stac(
-            "https://s3.waw3-1.cloudferro.com/swift/v1/agera_10d/stac/collection.json",  ####
-            spatial_extent=spatial_extent,
+            "https://stac.openeo.vito.be/collections/agera5_dekad",  ####
             temporal_extent=temporal_extent,
             bands=["precipitation-flux", "temperature-mean"],
         )
     elif period == "month":
         # Monthly composited METEO data
         cube = connection.load_stac(
-            "https://s3.waw3-1.cloudferro.com/swift/v1/agera/stac/collection.json",
-            spatial_extent=spatial_extent,
+            "https://stac.openeo.vito.be/collections/agera5_monthly",
             temporal_extent=temporal_extent,
             bands=["precipitation-flux", "temperature-mean"],
         )
@@ -323,9 +285,9 @@ def precomposited_datacube_METEO(
 def scaleag_preprocessed_inputs(
     connection: Connection,
     backend_context: BackendContext,
-    spatial_extent: Union[GeoJSON, BoundingBoxExtent, str],
     temporal_extent: TemporalContext,
     composite_window: str = "dekad",
+    # spatial_extent: Union[GeoJSON, BoundingBoxExtent, str, None] = None,
     fetch_type: Optional[FetchType] = FetchType.POINT,
     disable_meteo: bool = False,
     s1_orbit_state: Optional[str] = None,
@@ -351,7 +313,6 @@ def scaleag_preprocessed_inputs(
     s2_data = raw_datacube_S2(
         connection=connection,
         backend_context=backend_context,
-        spatial_extent=spatial_extent,
         temporal_extent=temporal_extent,
         bands=[
             "S2-L2A-B02",
@@ -384,7 +345,6 @@ def scaleag_preprocessed_inputs(
     s1_data = raw_datacube_S1(
         connection=connection,
         backend_context=backend_context,
-        spatial_extent=spatial_extent,
         temporal_extent=temporal_extent,
         bands=[
             "S1-SIGMA0-VH",
@@ -402,7 +362,6 @@ def scaleag_preprocessed_inputs(
     dem_data = raw_datacube_DEM(
         connection=connection,
         backend_context=backend_context,
-        spatial_extent=spatial_extent,
         fetch_type=fetch_type,
     )
 
@@ -418,7 +377,6 @@ def scaleag_preprocessed_inputs(
     if not disable_meteo:
         meteo_data = precomposited_datacube_METEO(
             connection=connection,
-            spatial_extent=spatial_extent,
             temporal_extent=temporal_extent,
             period=composite_window,
         )

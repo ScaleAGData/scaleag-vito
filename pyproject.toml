@@ -2,7 +2,7 @@
 requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
 
-[tool.hatch.build.targets.sdist]
+[tool.hatch.build]
 exclude = [
   "/dist",
   "/notebooks",
@@ -11,9 +11,15 @@ exclude = [
   "/tests",
 ]
 
+[tool.hatch.build.targets.wheel]
+packages = ["src/scaleagdata_vito"]
+
 [tool.hatch.version]
 path = "src/scaleagdata_vito/_version.py"
 pattern = "^__version__ = ['\"](?P<version>[^'\"]+)['\"]$"
+
+[tool.hatch.metadata]
+allow-direct-references = true
 
 [project]
 name = "scaleag-vito"
@@ -33,6 +39,9 @@ classifiers = [
 ]
 dependencies = [
     "catboost==1.2.5",
+    "cftime",
+    "geojson",  
+    "geopandas",  
     "rioxarray>=0.13.0",
     "loguru>=0.7.2",
     "geojson",
@@ -40,14 +49,14 @@ dependencies = [
     "netcdf4<=1.6.4",
     "h5netcdf>=1.1.0",
     "openeo>=0.31.0",
-    "cftime",
-    "prometheo",
+    "openeo-gfmap==0.4.4",
+    "prometheo @ git+https://github.com/WorldCereal/prometheo.git",
     "pytest-depends",
     "pyarrow",
     "geopandas",
     "scipy",
-    "scikit-learn",
     "scikit-image",
+    "xarray>=2022.3.0",
   ]
 
 [project.urls]
@@ -61,6 +70,16 @@ dev = [
   "wandb"
 ]
 train = [ 
+  "catboost==1.2.5",
+  "scikit-learn==1.5.0",
+  "torch>=2.3.1,<3.0.0",
+  "pystac==1.10.1",
+  "pystac-client==0.8.3"
+]
+
+notebooks = [
+  "ipywidgets==8.1.3",
+  "leafmap==0.35.1"
 ]
 
 [tool.pytest.ini_options]
