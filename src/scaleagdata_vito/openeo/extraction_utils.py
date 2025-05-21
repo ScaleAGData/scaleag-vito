@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 from loguru import logger
-from tabulate import tabulate
+from tabulate import tabulate  # type: ignore
 
 BANDS = {
     "S2-L2A": ["B02", "B03", "B04", "B05", "B06", "B07", "B08", "B8A", "B11", "B12"],
