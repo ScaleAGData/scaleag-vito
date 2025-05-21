@@ -351,7 +351,7 @@ class ScaleAgDataset(Dataset):
         )
         dem = np.full((1, 1, len(DEM_BANDS)), fill_value=NODATAVALUE, dtype=np.float32)
         return s1, s2, meteo, dem
-    
+
 
 class ScaleAgInferenceDataset(Dataset):
     BAND_MAPPING = {
@@ -372,13 +372,13 @@ class ScaleAgInferenceDataset(Dataset):
         "AGERA5-PRECIP": "precipitation",
         "AGERA5-TMEAN": "temperature",
     }
-    
+
     def __init__(self, composite_window: Literal["dekad", "month"] = "dekad"):
         self.composite_window = composite_window
-        
+
     def __len__(self):
         return len(self.all_files)
-  
+
     def nc_to_array(self, filepath: Path, mask_path: Union[str, Path, None]=None) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         inarr = xr.open_dataset(filepath)
         epsg = CRS.from_wkt(inarr.crs.attrs["crs_wkt"]).to_epsg()
@@ -388,8 +388,8 @@ class ScaleAgInferenceDataset(Dataset):
             .drop_sel(bands="crs")
         )
         return self._get_predictors(inarr, epsg, mask_path)
-        
-    
+
+
     def _get_predictors(self, inarr: xr.DataArray, epsg: int, mask_path: Union[str, Path, None]=None) -> List[np.ndarray]:
         num_pixels = len(inarr.x) * len(inarr.y)
         num_timesteps = len(inarr.t)
@@ -400,14 +400,14 @@ class ScaleAgInferenceDataset(Dataset):
             mask = rio.open(mask_path).read(1).astype(bool)
             inarr = inarr.where(mask, other=NODATAVALUE)
         inarr = inarr.fillna(NODATAVALUE)
-        
+
         s1, s2, meteo, dem = self.initialize_inputs(num_pixels, num_timesteps)
         latlon = self._extract_latlons(inarr, epsg)
-        
+
         # for each pixel extract bands and put in predictor. treat num of pix as batch size
         # access bands
         # normalize bands openeo to presto units
-        
+
         for src_attr, dst_attr in self.BAND_MAPPING.items():
             # retrieve ts for each band column df_val
             if src_attr in inarr.bands.values:
@@ -431,11 +431,11 @@ class ScaleAgInferenceDataset(Dataset):
                         meteo, dst_attr, values, idx_valid
                     )
                 elif dst_attr in DEM_BANDS:
-                    dem = self.openeo_to_prometheo_units(dem, dst_attr, values, idx_valid) 
+                    dem = self.openeo_to_prometheo_units(dem, dst_attr, values, idx_valid)
         # extend the dimension of the timestamp array to match the number of pixels
         timestamps = np.repeat(self.get_date_array(inarr, num_timesteps)[np.newaxis, :, :], num_pixels, 0)
         return s1, s2, meteo, dem, latlon, timestamps
-        
+
     def _get_correct_date(self, dt_in: str) -> np.datetime64:
         """
         Determine the correct date based on the input date and compositing window.
@@ -508,9 +508,9 @@ class ScaleAgInferenceDataset(Dataset):
             days, months, years = self._get_monthly_dates(start_date, num_timesteps)
         else:
             raise ValueError(f"Unknown compositing window: {self.composite_window}")
-        
+
         return np.stack([days, months, years], axis=1)
-    
+
     def _extract_latlons(self, inarr: xr.DataArray, epsg: int) -> np.ndarray:
         """
         Extracts latitudes and longitudes from the input xarray.DataArray.
@@ -531,7 +531,7 @@ class ScaleAgInferenceDataset(Dataset):
 
         # 2D array where each row represents a pair of latitude and longitude coordinates.
         return flat_latlons
-    
+
     def openeo_to_prometheo_units(self, band_array, band, values, idx_valid):
         if band in S1_BANDS:
             # convert to dB
@@ -549,10 +549,10 @@ class ScaleAgInferenceDataset(Dataset):
         elif band in DEM_BANDS:
             band_array[:, 0, 0, DEM_BANDS.index(band)] = values[:, 0]
         else:
-            raise ValueError(f"Unknown band {band}")    
+            raise ValueError(f"Unknown band {band}")
         return band_array
-    
-        
+
+
     def initialize_inputs(self, num_pix: int, num_timesteps: int):
         s1 = np.full(
             (num_pix, 1, 1, num_timesteps, len(S1_BANDS)),
@@ -571,7 +571,7 @@ class ScaleAgInferenceDataset(Dataset):
         )
         dem = np.full((num_pix, 1, 1, len(DEM_BANDS)), fill_value=NODATAVALUE, dtype=np.float32)
         return s1, s2, meteo, dem
-       
+
 class InferenceDataset(Dataset):
     def __init__(self, s1, s2, meteo, dem, latlon, timestamps):
         self.data = [
@@ -584,9 +584,9 @@ class InferenceDataset(Dataset):
                 timestamps=timestamps[i],
             ))
             for i in range(len(s1))]
-        
+
     def __getitem__(self, idx):
         return self.data[idx]
-    
+
     def __len__(self):
         return len(self.data)

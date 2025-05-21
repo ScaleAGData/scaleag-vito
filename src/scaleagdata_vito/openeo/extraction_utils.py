@@ -331,7 +331,7 @@ def visualize_timeseries(gdf: gpd.GeoDataFrame, sample_id: str) -> None:
     for band, plot_band in PLOT_BAND_MAPPING.items():
         if band != "NDVI":
             data = _apply_band_scaling(sample_data[band].values, band)
-        else: 
+        else:
             data = compute_ndvi(sample_data)
         sns.lineplot(
             x=np.arange(len(months)),
@@ -350,7 +350,7 @@ def visualize_timeseries(gdf: gpd.GeoDataFrame, sample_id: str) -> None:
 
     for j in range(i, len(axes)):
         axes[j].set_visible(False)
-        
+
     plt.suptitle(f"Sample ID {sample_id}", fontsize=16, y=1.02)
     plt.tight_layout()
     plt.show()

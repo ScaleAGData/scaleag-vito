@@ -472,7 +472,7 @@ def extract(args):
     # if args.routine == "training":
     #     assert args.input_df != "", "Input dataframe is required for the training routine."
     input_df = load_dataframe(args.input_df)
-        
+
     # if input_df[args.unique_id_column] != "":
     input_df["sample_id"] = input_df[args.unique_id_column]
     assert input_df["sample_id"].is_unique, "The unique ID column is not unique."
@@ -525,7 +525,7 @@ def extract(args):
 def generate_input_for_extractions(input_dict):
     start_date = None if "start_date" not in input_dict.keys() else input_dict["start_date"]
     end_date = None if "end_date" not in input_dict.keys() else input_dict["end_date"]
-    
+
     job_inputs = pd.Series(
         {
             "collection": ExtractionCollection.SAMPLE_SCALEAG,
@@ -607,7 +607,7 @@ def collect_inputs_for_inference(
     )
 
     inputs = inputs.filter_bbox(dict(spatial_extent))
-    
+
     JOB_OPTIONS = {
         "driver-memory": "4g",
         "executor-memory": "1g",

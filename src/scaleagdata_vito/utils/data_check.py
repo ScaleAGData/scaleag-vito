@@ -35,7 +35,7 @@ def check_valid_geometry(df):
         # All geometries are valid. Return empty dataframe for invalid geometries
         logger.info("All geometries are valid")
         return gpd.GeoDataFrame(), df
-    
+
 def _save(save_to, original_file_path, df, suffix=''):
     if suffix!='':
         filename = Path(save_to) / f"{Path(original_file_path).stem}_{suffix}.geojson"

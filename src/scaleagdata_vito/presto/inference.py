@@ -20,7 +20,7 @@ from scaleagdata_vito.presto.datasets_prometheo import (
 
 class PrestoPredictor:
     def __init__(
-        self, 
+        self,
         model: PretrainedPrestoWrapper,
         batch_size: int = 8192,
         task_type: Literal["regression", "binary", "multiclass"] = "regression",
@@ -61,7 +61,7 @@ class PrestoPredictor:
                 output = self.model(batch)
                 # binary classification
                 if self.task_type == "binary":
-                    probs = torch.sigmoid(output).cpu().numpy()                
+                    probs = torch.sigmoid(output).cpu().numpy()
                 # multiclass classification
                 elif self.task_type == "multiclass":
                     probs = torch.softmax(output, dim=-1).cpu().numpy()
@@ -78,7 +78,7 @@ class PrestoPredictor:
                 all_probs.append(probs.flatten())
         all_probs = np.concatenate(all_probs)
         return all_probs
-        
+
     def get_predictions(self, probs: np.ndarray, threshold: int = 0.5) -> xr.DataArray:
         if self.task_type == "binary":
             preds = probs > threshold
@@ -135,7 +135,7 @@ def plot_results(path_to_input_file, task, prob_map=None, pred_map=None, ts_inde
         axs[2].axis('off')
 
         cbar = fig.colorbar(im, cax=cax)
-        cbar.set_ticks(np.arange(0, 1.1, 0.1)) 
+        cbar.set_ticks(np.arange(0, 1.1, 0.1))
         plt.show()
     elif task == "multiclass":
         if pred_map is None:
@@ -152,7 +152,7 @@ def plot_results(path_to_input_file, task, prob_map=None, pred_map=None, ts_inde
         axs[1].set_title('Prediction Map')
         axs[1].axis('off')
 
-        plt.show()    
+        plt.show()
     else:
         if prob_map is None:
             raise ValueError("prob_map must be provided for regression")

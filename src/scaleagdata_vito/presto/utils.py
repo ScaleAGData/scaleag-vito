@@ -151,8 +151,8 @@ def load_finetuned_model(
             regression=False,
         )
     return load_presto_weights(model, f'{model_path}.pt', strict=False)
-    
-    
+
+
 def finetune_on_task(
     train_ds: ScaleAgDataset,
     val_ds: ScaleAgDataset,
@@ -164,9 +164,9 @@ def finetune_on_task(
     patience: int = 3,
     num_workers: int = 2
     ):
-    
+
     composite_window = train_ds.composite_window
-    
+
     if train_ds.task_type == "regression":
         regression = True
         num_outputs = 1
@@ -179,10 +179,10 @@ def finetune_on_task(
         regression = False
         num_outputs = train_ds.num_outputs
         loss_fn = nn.CrossEntropyLoss()
-    
+
     if pretrained_model_path is None:
-        logger.info("No pretrained model path provided. Using randomly initialized model.")   
-         
+        logger.info("No pretrained model path provided. Using randomly initialized model.")
+
     if composite_window == "dekad":
         model = PretrainedPrestoWrapper(
             num_outputs=num_outputs,
@@ -193,13 +193,13 @@ def finetune_on_task(
         model = PretrainedPrestoWrapper(
             num_outputs=num_outputs,
             regression=regression,
-            pretrained_model_path=pretrained_model_path, 
+            pretrained_model_path=pretrained_model_path,
         )
 
     hyperparams = Hyperparams(
         max_epochs=max_epochs,
         batch_size=batch_size,
-        patience=patience, 
+        patience=patience,
         num_workers=num_workers
         )
     parameters = param_groups_lrd(model)
@@ -276,7 +276,7 @@ def train_test_val_split(df, group_sample_by=None, uniform_sample_by=None, sampl
         parentname_val = random.sample(list(parentname_val_test), int(len(parentname_val_test)*0.5))
         df_val = df_val_test[df_val_test[group_sample_by].isin(parentname_val)]
         df_test = df_val_test[~df_val_test[group_sample_by].isin(parentname_val)]
-        
+
     elif uniform_sample_by is not None:
         group_counts = df[uniform_sample_by].value_counts()
         valid_groups = group_counts[group_counts >= nmin_per_class].index
@@ -291,11 +291,11 @@ def train_test_val_split(df, group_sample_by=None, uniform_sample_by=None, sampl
         df_test = df_val_test[~df_val_test.index.isin(df_val.index)]
     else:
         raise ValueError("Either group_sample_by or uniform_sample_by must be provided to split the data.")
-    
+
     logger.info(f"Training set size: {len(df_train)}")
     logger.info(f"Validation set size: {len(df_val)}")
     logger.info(f"Test set size: {len(df_test)}")
-    
+
     return df_train, df_val, df_test
 
 
@@ -309,7 +309,7 @@ def plot_distribution(df, target_name, upper_bound=None, lower_bound=None):
         plt.legend()
     plt.title(target_name)
     plt.show()
-    
+
 
 def get_pretrained_model_url(composite_window: Literal["dekad", "month"]):
     if composite_window == "dekad":
@@ -322,6 +322,6 @@ def get_pretrained_model_url(composite_window: Literal["dekad", "month"]):
             return "https://artifactory.vgt.vito.be/artifactory/auxdata-public/scaleagdata/models/presto-ss-wc_30D.pt"
         except:
             return dir / "presto-ss-wc_30D.pt"
-        
+
 def get_resources_dir():
-    return dir 
+    return dir
