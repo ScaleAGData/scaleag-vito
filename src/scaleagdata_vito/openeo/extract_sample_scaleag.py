@@ -232,7 +232,6 @@ def create_job_sample_scaleag(
     inputs = scaleag_preprocessed_inputs(
         connection=connection,
         backend_context=backend_context,
-        spatial_extent=geometry,
         temporal_extent=temporal_extent,
         composite_window=row.composite_window,
         s2_tile=s2_tile,
@@ -601,13 +600,14 @@ def collect_inputs_for_inference(
     inputs = scaleag_preprocessed_inputs(
         connection=cdse_connection(),
         backend_context=backend_context,
-        spatial_extent=spatial_extent,
         temporal_extent=temporal_extent,
         tile_size=tile_size,
         composite_window=composite_window,
         fetch_type=FetchType.TILE
     )
 
+    inputs = inputs.filter_bbox(dict(spatial_extent))
+    
     JOB_OPTIONS = {
         "driver-memory": "4g",
         "executor-memory": "1g",

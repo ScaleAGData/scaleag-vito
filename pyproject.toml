@@ -44,13 +44,14 @@ dependencies = [
     "h5netcdf>=1.1.0",
     "openeo>=0.31.0",
     "cftime",
-    "prometheo",
     "pytest-depends",
     "pyarrow",
     "geopandas",
     "scipy",
     "scikit-learn",
     "scikit-image",
+    "openeo-gfmap==0.4.4",
+    "prometheo @ git+https://github.com/WorldCereal/prometheo.git",
   ]
 
 [project.urls]
@@ -64,6 +65,11 @@ dev = [
   "wandb"
 ]
 train = [ 
+  "catboost==1.2.5",
+  "scikit-learn==1.6.1",
+  "torch>=2.7.0,<3.0.0",
+  "pystac==1.10.1",
+  "pystac-client==0.8.3"
 ]
 
 [tool.pytest.ini_options]
