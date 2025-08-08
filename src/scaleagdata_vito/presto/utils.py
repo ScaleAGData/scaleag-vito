@@ -41,21 +41,27 @@ def predict_with_head(
 ):
     all_preds, all_targets = [], []
     finetuned_model.eval()
+
     for batch in dl:
         with torch.no_grad():
             preds = finetuned_model(batch)
+            targets = batch.label.cpu().numpy().flatten().astype(np.float32)
+            
             # binary classification
             if dl.dataset.task_type == "binary":
-                preds = nn.functional.sigmoid(preds)
+                preds = torch.sigmoid(preds)
+                targets = targets.astype(int)
             # multiclass classification
             elif dl.dataset.task_type == "multiclass":
-                preds = nn.functional.softmax(preds, dim=-1)
+                preds = torch.softmax(preds, dim=-1)
+                targets = targets.astype(int)
+
             # Flatten predictions and targets
             preds = preds.cpu().numpy().flatten()
-            targets = batch.label.float().numpy().flatten()
 
             all_preds.append(preds)
             all_targets.append(targets)
+            
     all_preds = np.concatenate(all_preds)
     all_targets = np.concatenate(all_targets)
     return all_preds, all_targets
@@ -166,6 +172,7 @@ def finetune_on_task(
     batch_size: int = 100,
     patience: int = 3,
     num_workers: int = 2,
+    lr: float = 2e-5,
 ):
 
     composite_window = train_ds.composite_window
@@ -206,6 +213,7 @@ def finetune_on_task(
         batch_size=batch_size,
         patience=patience,
         num_workers=num_workers,
+        lr=lr,
     )
     parameters = param_groups_lrd(model)
     optimizer = AdamW(parameters, lr=hyperparams.lr)

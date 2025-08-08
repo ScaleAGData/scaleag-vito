@@ -281,12 +281,15 @@ def _read_job_tracking_csv(output_folder: Path) -> pd.DataFrame:
     FileNotFoundError
         if the job status file is not found in the designated folder
     """
-    job_status_file = output_folder / "job_tracking.csv"
-    if job_status_file.exists():
-        job_status_df = pd.read_csv(job_status_file)
-    else:
-        raise FileNotFoundError(f"Job status file not found at {job_status_file}")
-    return job_status_df
+    job_status_files = list(Path(output_folder).glob("job_tracking*"))
+    job_status_dfs = pd.DataFrame()
+    for file in job_status_files:
+        if file.exists():
+            job_status_df = pd.read_csv(file)
+            job_status_dfs = pd.concat([job_status_dfs, job_status_df], ignore_index=True)
+        else:
+            raise FileNotFoundError(f"Job status file not found at {file}")
+    return job_status_dfs
 
 
 def _count_by_status(job_status_df, statuses: Iterable[str] = ()) -> dict:
@@ -306,8 +309,8 @@ def compute_ndvi(gdf):
 
 def visualize_timeseries(gdf: gpd.GeoDataFrame, sample_id: str) -> None:
     sample_data = (
-        gdf[gdf["sample_id"] == sample_id].replace(65535, 0).sort_values(by="timestamp")
-    )
+        gdf[gdf["sample_id"] == sample_id].sort_values(by="timestamp")
+    ) # 
     # checked order in code
 
     months = sample_data["timestamp"].dt.month
@@ -338,14 +341,24 @@ def visualize_timeseries(gdf: gpd.GeoDataFrame, sample_id: str) -> None:
             data = _apply_band_scaling(sample_data[band].values, band)
         else:
             data = compute_ndvi(sample_data)
+
+        valid_idx = data != NODATAVALUE
         sns.lineplot(
-            x=np.arange(len(months)),
-            y=data,
+            x = np.arange(len(months))[valid_idx],
+            y = data[valid_idx],
             ax=axes[i],
             alpha=0.5,
             linewidth=3,
             color="blue",
         )  # Overlay actual data
+        # Scatter plot only for non-nan data
+        axes[i].scatter(
+            np.arange(len(months))[valid_idx],
+            data[valid_idx],
+            color="red",
+            s=30,
+            label="Valid data",
+        )
         axes[i].set_title(plot_band)
         axes[i].set_xticks(np.arange(len(months)))
         axes[i].set_xticklabels(x_ticks, rotation=90)
