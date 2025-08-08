@@ -466,7 +466,10 @@ def extract(args):
         args.output_folder.mkdir(parents=True, exist_ok=True)
         # raise ValueError(f"Output folder {args.output_folder} does not exist.")
 
-    tracking_df_path = Path(args.output_folder) / "job_tracking.csv"
+    # create a tracking file specific for the dataset to avoid preventing extractions to run
+    # when a new dataset is extracted in the same output folder 
+    dataset_name = args.input_df.stem
+    tracking_df_path = Path(args.output_folder) / f"job_tracking_{dataset_name}.csv"
 
     # # Load the input dataframe and build the job dataframe
     # if args.routine == "training":
