@@ -35,7 +35,6 @@ dir = (
     Path(os.path.dirname(os.path.realpath(__file__))).parent.parent.parent / "resources"
 )
 
-
 def predict_with_head(
     dl: DataLoader,
     finetuned_model: PretrainedPrestoWrapper,
@@ -212,11 +211,26 @@ def finetune_on_task(
     optimizer = AdamW(parameters, lr=hyperparams.lr)
     scheduler = lr_scheduler.ExponentialLR(optimizer, gamma=0.99)
 
+    train_dl = DataLoader(
+        train_ds,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=num_workers,
+        collate_fn=collate_fn,
+    )
+    val_dl = DataLoader(
+        val_ds,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=num_workers,
+        collate_fn=collate_fn,
+    )
+    
     logger.info(f"Finetuning the model on {train_ds.task_type} task")
     finetuned_model = finetune.run_finetuning(
         model=model,
-        train_ds=train_ds,
-        val_ds=val_ds,
+        train_dl=train_dl,
+        val_dl=val_dl,
         experiment_name=experiment_name,
         output_dir=output_dir,
         loss_fn=loss_fn,
@@ -294,23 +308,30 @@ def train_test_val_split(
         df_test = df_val_test[~df_val_test[group_sample_by].isin(parentname_val)]
 
     elif uniform_sample_by is not None:
-        group_counts = df[uniform_sample_by].value_counts()
-        valid_groups = group_counts[group_counts >= nmin_per_class].index
-        if len(valid_groups) != len(group_counts):
-            logger.warning(
-                f"Some groups have less than {nmin_per_class} samples. They will be excluded from the split."
-            )
+        if nmin_per_class == 1:
+            df_sample = df.copy()
+            df_train = df_sample.sample(frac=sampling_frac, random_state=3)
+            df_val_test = df_sample[~df_sample.index.isin(df_train.index)]
+            df_val = df_val_test.sample(frac=0.5, random_state=3)
+            df_test = df_val_test[~df_val_test.index.isin(df_val.index)]
         else:
-            logger.info(
-                f"All groups have at least {nmin_per_class} samples. Proceeding with the split."
+            group_counts = df[uniform_sample_by].value_counts()
+            valid_groups = group_counts[group_counts >= nmin_per_class].index
+            if len(valid_groups) != len(group_counts):
+                logger.warning(
+                    f"Some groups have less than {nmin_per_class} samples. They will be excluded from the split."
+                )
+            else:
+                logger.info(
+                    f"All groups have at least {nmin_per_class} samples. Proceeding with the split."
+                )
+            df_sample = df[df[uniform_sample_by].isin(valid_groups)].reset_index(drop=True)
+            df_train = df_sample.groupby(uniform_sample_by).sample(
+                frac=sampling_frac, random_state=3
             )
-        df_sample = df[df[uniform_sample_by].isin(valid_groups)].reset_index(drop=True)
-        df_train = df_sample.groupby(uniform_sample_by).sample(
-            frac=sampling_frac, random_state=3
-        )
-        df_val_test = df_sample[~df_sample.index.isin(df_train.index)]
-        df_val = df_val_test.groupby(uniform_sample_by).sample(frac=0.5, random_state=3)
-        df_test = df_val_test[~df_val_test.index.isin(df_val.index)]
+            df_val_test = df_sample[~df_sample.index.isin(df_train.index)]
+            df_val = df_val_test.groupby(uniform_sample_by).sample(frac=0.5, random_state=3)
+            df_test = df_val_test[~df_val_test.index.isin(df_val.index)]
     else:
         raise ValueError(
             "Either group_sample_by or uniform_sample_by must be provided to split the data."
@@ -337,22 +358,9 @@ def plot_distribution(df, target_name, upper_bound=None, lower_bound=None):
 
 def get_pretrained_model_url(composite_window: Literal["dekad", "month"]):
     if composite_window == "dekad":
-        try:
-            return "https://artifactory.vgt.vito.be/artifactory/auxdata-public/scaleagdata/models/presto-ss-wc_10D.pt"
-        except Exception:
-            logger.warning(
-                "Could not access the pretrained model from the URL. Loading model from repository resources"
-            )
-            return dir / "presto-ss-wc_10D.pt"
+        return "https://artifactory.vgt.vito.be/artifactory/auxdata-public/scaleagdata/models/presto-ss-wc_10D.pt"
     else:
-        try:
-            return "https://artifactory.vgt.vito.be/artifactory/auxdata-public/scaleagdata/models/presto-ss-wc_30D.pt"
-        except Exception:
-            logger.warning(
-                "Could not access the pretrained model from the URL. Loading model from repository resources"
-            )
-            return dir / "presto-ss-wc_30D.pt"
-
+        return "https://artifactory.vgt.vito.be/artifactory/auxdata-public/scaleagdata/models/presto-ss-wc_30D.pt"
 
 def get_resources_dir():
     return dir
