@@ -121,16 +121,18 @@ def evaluate_finetuned_model(
         targets = [test_ds.index_to_class[int(t)] for t in targets]
         metrics = classification_report(targets, preds, output_dict=True)
     else:
-        targets = test_ds.revert_to_original_units(targets)
-        preds = test_ds.revert_to_original_units(preds)
+        targets_original_units = np.expm1(targets)
+        preds_original_units = np.expm1(preds)
+        # targets_original_units = test_ds.revert_to_original_units(targets)
+        # preds_original_units = test_ds.revert_to_original_units(preds)
         metrics = {
-            "RMSE": float(np.sqrt(mean_squared_error(targets, preds))),
-            "R2_score": float(r2_score(targets, preds)),
-            "explained_var_score": float(explained_variance_score(targets, preds)),
-            "MAPE": float(mean_absolute_percentage_error(targets, preds)),
+            "RMSE": np.sqrt(mean_squared_error(targets_original_units, preds_original_units)),
+            "MSE": mean_squared_error(targets_original_units, preds_original_units),
+            "R2_score": r2_score(targets_original_units, preds_original_units),
+            "MAPE": mean_absolute_percentage_error(targets_original_units, preds_original_units),
         }
-
-    return metrics
+        return metrics, preds_original_units, targets_original_units
+    return metrics, preds, targets
 
 
 def load_finetuned_model(
@@ -195,13 +197,15 @@ def finetune_on_task(
             "No pretrained model path provided. Using randomly initialized model."
         )
 
-    if composite_window == "dekad":
+    # if composite_window == "dekad":
+    try:
         model = PretrainedPrestoWrapper(
             num_outputs=num_outputs,
             regression=regression,
         )
         model = load_presto_weights(model, pretrained_model_path, strict=False)
-    else:
+    # else:
+    except Exception as e:
         model = PretrainedPrestoWrapper(
             num_outputs=num_outputs,
             regression=regression,
@@ -278,6 +282,7 @@ def evaluate_downstream_model(
         preds = test_ds.revert_to_original_units(preds)
         metrics = {
             "RMSE": float(np.sqrt(mean_squared_error(targets, preds))),
+            "MSE": float(mean_squared_error(targets, preds)),
             "R2_score": float(r2_score(targets, preds)),
             "explained_var_score": float(explained_variance_score(targets, preds)),
             "MAPE": float(mean_absolute_percentage_error(targets, preds)),
@@ -292,12 +297,13 @@ def train_test_val_split(
     uniform_sample_by=None,
     sampling_frac=0.8,
     nmin_per_class=5,
+    seed=3,
 ):
     """
     Splits the data into train, val and test sets.
     The split is done based on the unique parentname values.
     """
-    random.seed(3)
+    random.seed(seed)
     if group_sample_by is not None:
         parentnames = df[group_sample_by].unique()
         parentname_train = random.sample(
@@ -318,9 +324,9 @@ def train_test_val_split(
     elif uniform_sample_by is not None:
         if nmin_per_class == 1:
             df_sample = df.copy()
-            df_train = df_sample.sample(frac=sampling_frac, random_state=3)
+            df_train = df_sample.sample(frac=sampling_frac, random_state=seed)
             df_val_test = df_sample[~df_sample.index.isin(df_train.index)]
-            df_val = df_val_test.sample(frac=0.5, random_state=3)
+            df_val = df_val_test.sample(frac=0.5, random_state=seed)
             df_test = df_val_test[~df_val_test.index.isin(df_val.index)]
         else:
             group_counts = df[uniform_sample_by].value_counts()
@@ -334,11 +340,19 @@ def train_test_val_split(
                     f"All groups have at least {nmin_per_class} samples. Proceeding with the split."
                 )
             df_sample = df[df[uniform_sample_by].isin(valid_groups)].reset_index(drop=True)
-            df_train = df_sample.groupby(uniform_sample_by).sample(
-                frac=sampling_frac, random_state=3
+            # Ensure deterministic sampling by sorting and using group keys as seed offsets
+            def group_sample(group, frac, base_seed):
+                n = int(np.floor(len(group) * frac))
+                # Use a deterministic seed per group
+                group_seed = hash(str(group.name) + str(base_seed)) % (2**32)
+                return group.sample(n=n, random_state=group_seed)
+            df_train = df_sample.groupby(uniform_sample_by, group_keys=False).apply(
+                lambda g: group_sample(g, sampling_frac, seed)
             )
             df_val_test = df_sample[~df_sample.index.isin(df_train.index)]
-            df_val = df_val_test.groupby(uniform_sample_by).sample(frac=0.5, random_state=3)
+            df_val = df_val_test.groupby(uniform_sample_by, group_keys=False).apply(
+                lambda g: group_sample(g, 0.5, seed + 1)
+            )
             df_test = df_val_test[~df_val_test.index.isin(df_val.index)]
     else:
         raise ValueError(

@@ -157,7 +157,7 @@ def load_point_extractions(
     """
 
     # Look for all extractions in the given folder
-    infiles = list(Path(extractions_dir).glob("**/*.geoparquet"))
+    infiles = list(Path(extractions_dir).glob("**/*parquet"))
     # Get rid of merged geoparquet
     infiles = [f for f in infiles if not Path(f).is_dir()]
 
@@ -170,7 +170,11 @@ def load_point_extractions(
         gdf = gpd.read_parquet(infiles[0])
     else:
         # load all files
-        gdf = gpd.read_parquet(infiles)
+        dfs = []
+        for f in infiles:
+            gdf = gpd.read_parquet(f)
+            dfs.append(gdf)
+        gdf = pd.concat(dfs, ignore_index=True).reset_index(drop=True)
 
     return gdf
 

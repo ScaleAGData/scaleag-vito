@@ -69,15 +69,16 @@ class PrestoPredictor:
                     probs = torch.softmax(output, dim=-1).cpu().numpy()
                 elif self.task_type == "regression":
                     probs = output.cpu().numpy()
-                    if upper_bound is not None and lower_bound is not None:
-                        probs = revert_to_original_units(
-                            probs, upper_bound, lower_bound
-                        )
-                    else:
-                        raise ValueError(
-                            "upper_bound and lower_bound used during training"
-                            "must be provided for converting results to origininal units"
-                        )
+                    # if upper_bound is not None and lower_bound is not None:
+                    #     probs = revert_to_original_units(
+                    #         probs, upper_bound, lower_bound
+                    #     )
+                    probs = np.expm1(probs)
+                    # else:
+                    #     raise ValueError(
+                    #         "upper_bound and lower_bound used during training"
+                    #         "must be provided for converting results to origininal units"
+                    #     )
                 else:
                     raise ValueError(
                         "task_type must be either 'binary', 'multiclass' or 'regression'"
