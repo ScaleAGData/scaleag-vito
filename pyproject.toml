@@ -54,6 +54,7 @@ dependencies = [
     "pytest-depends",
     "pyarrow",
     "geopandas",
+    "seaborn",
     "scipy",
     "scikit-image",
     "xarray>=2022.3.0",
