@@ -30,6 +30,7 @@ from sklearn.metrics import (
 from torch import nn
 from torch.optim import AdamW, lr_scheduler
 from torch.utils.data import DataLoader
+import pprint
 
 dir = (
     Path(os.path.dirname(os.path.realpath(__file__))).parent.parent.parent / "resources"
@@ -116,21 +117,24 @@ def evaluate_finetuned_model(
     if test_ds.task_type == "binary":
         preds = preds > 0.5
         metrics = classification_report(targets, preds, output_dict=True)
+        pprint.pprint(metrics)
     elif test_ds.task_type == "multiclass":
         preds = [test_ds.index_to_class[int(t)] for t in preds]
         targets = [test_ds.index_to_class[int(t)] for t in targets]
         metrics = classification_report(targets, preds, output_dict=True)
+        pprint.pprint(metrics)
     else:
         targets_original_units = np.expm1(targets)
         preds_original_units = np.expm1(preds)
         # targets_original_units = test_ds.revert_to_original_units(targets)
         # preds_original_units = test_ds.revert_to_original_units(preds)
         metrics = {
-            "RMSE": np.sqrt(mean_squared_error(targets_original_units, preds_original_units)),
-            "MSE": mean_squared_error(targets_original_units, preds_original_units),
-            "R2_score": r2_score(targets_original_units, preds_original_units),
-            "MAPE": mean_absolute_percentage_error(targets_original_units, preds_original_units),
+            "RMSE": round(float(np.sqrt(mean_squared_error(targets_original_units, preds_original_units))), 4),
+            "MSE": round(float(mean_squared_error(targets_original_units, preds_original_units)), 4),
+            "R2_score": round(float(r2_score(targets_original_units, preds_original_units)), 4),
+            "MAPE": round(float(mean_absolute_percentage_error(targets_original_units, preds_original_units)), 4),
         }
+        pprint.pprint(metrics)
         return metrics, preds_original_units, targets_original_units
     return metrics, preds, targets
 

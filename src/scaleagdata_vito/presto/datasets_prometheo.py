@@ -411,7 +411,7 @@ class ScaleAgInferenceDataset(Dataset):
         inarr = inarr.fillna(NODATAVALUE)
 
         s1, s2, meteo, dem = self.initialize_inputs(num_pixels, num_timesteps)
-        latlon = self._extract_latlons(inarr, epsg)
+        latlon = self._extract_latlons(inarr, epsg).reshape((num_pixels, 1, 1, 2))
 
         # for each pixel extract bands and put in predictor. treat num of pix as batch size
         # access bands
