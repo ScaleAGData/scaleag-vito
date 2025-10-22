@@ -253,7 +253,7 @@ def create_job_sample_scaleag(
         "python-memory": python_memory,
         "executor-cores": "1",
         "max-executors": max_executors,
-        "soft-errors": "true",
+        "soft-errors": 0.1,
     }
 
     return cube.create_job(
@@ -467,7 +467,7 @@ def extract(args):
         # raise ValueError(f"Output folder {args.output_folder} does not exist.")
 
     # create a tracking file specific for the dataset to avoid preventing extractions to run
-    # when a new dataset is extracted in the same output folder 
+    # when a new dataset is extracted in the same output folder
     dataset_name = args.input_df.stem
     tracking_df_path = Path(args.output_folder) / f"job_tracking_{dataset_name}.csv"
 
@@ -544,7 +544,7 @@ def generate_input_for_extractions(input_dict):
             "python_memory": "3G",
             "max_executors": 22,
             "parallel_jobs": 2,
-            "soft-errors": 0.8,
+            "soft-errors": 0.1,
             "restart_failed": True,
             "unique_id_column": input_dict["unique_id_column"],
             "composite_window": input_dict["composite_window"],
