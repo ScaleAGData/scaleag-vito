@@ -1,9 +1,5 @@
-import random
-
 # import sys
 from pathlib import Path
-
-from loguru import logger
 
 # sys.path.append("/home/vito/millig/gio/prometheo/")
 from prometheo import finetune
@@ -13,8 +9,9 @@ from prometheo.models.presto.wrapper import PretrainedPrestoWrapper, load_pretra
 from torch import nn
 
 from scaleagdata_vito.presto.presto_df import load_dataset
-from scaleagdata_vito.presto.utils import evaluate_finetuned_model
+from scaleagdata_vito.presto.utils import evaluate_finetuned_model, train_test_val_split
 
+p = "/projects/HEScaleAgData/timeseries_modelling/datasets/LPIS_Extractions_2024/all_extractions/"
 # load extracted dataset
 window_of_interest = ["2022-04-01", "2022-10-31"]
 df = load_dataset(
@@ -29,16 +26,10 @@ df = load_dataset(
 
 
 #### prepare datasets for training
-sampling_frac = 0.8
-random.seed(42)
-parentname = df.parentname.unique()
-parentname_train = random.sample(list(parentname), int(len(parentname) * sampling_frac))
-df_sample = df.copy()
-df_train = df_sample[df_sample.parentname.isin(parentname_train)]
-df_val = df_sample[~df_sample.parentname.isin(parentname_train)]
 
-logger.info(f"Train size: {len(df_train)}")
-logger.info(f"Val size: {len(df_val)}")
+df_train, df_val, df_test = train_test_val_split(
+    df=df, group_sample_by="parentname", sampling_frac=0.8
+)
 
 
 # initialize datasets
