@@ -78,14 +78,14 @@ def get_encodings(
     finetuned_model.eval()
     for batch in dl:
         with torch.no_grad():
-            s1_s2_era5_srtm, mask, dynamic_world = dataset_to_model(batch)
+            s1_s2_era5_srtm, mask, dynamic_world, latlon, timestamps, h, w  = dataset_to_model(batch)
             encodings = finetuned_model.encoder(
                 x=to_torchtensor(s1_s2_era5_srtm, device=device).float(),
                 dynamic_world=to_torchtensor(dynamic_world, device=device).long(),
-                latlons=to_torchtensor(batch.latlon, device=device).float(),
+                latlons=to_torchtensor(latlon, device=device).float(),
                 mask=to_torchtensor(mask, device=device).long(),
                 # presto wants 0 indexed months, not 1 indexed months
-                month=to_torchtensor(batch.timestamps[:, :, 1] - 1, device=device),
+                month=to_torchtensor(timestamps, device=device),
                 eval_pooling=eval_pooling,
             )
             all_encodings.append(encodings.numpy())
@@ -124,10 +124,10 @@ def evaluate_finetuned_model(
         metrics = classification_report(targets, preds, output_dict=True)
         pprint.pprint(metrics)
     else:
-        targets_original_units = np.expm1(targets)
-        preds_original_units = np.expm1(preds)
-        # targets_original_units = test_ds.revert_to_original_units(targets)
-        # preds_original_units = test_ds.revert_to_original_units(preds)
+        # targets_original_units = np.expm1(targets)
+        # preds_original_units = np.expm1(preds)
+        targets_original_units = test_ds.revert_to_original_units(targets)
+        preds_original_units = test_ds.revert_to_original_units(preds)
         metrics = {
             "RMSE": round(float(np.sqrt(mean_squared_error(targets_original_units, preds_original_units))), 4),
             "MSE": round(float(mean_squared_error(targets_original_units, preds_original_units)), 4),
@@ -387,6 +387,7 @@ def get_pretrained_model_url(composite_window: Literal["dekad", "month"]):
         return "https://artifactory.vgt.vito.be/artifactory/auxdata-public/scaleagdata/models/presto-ss-wc_10D.pt"
     else:
         return "https://artifactory.vgt.vito.be/artifactory/auxdata-public/scaleagdata/models/presto-ss-wc_30D.pt"
+    # "https://artifactory.vgt.vito.be/artifactory/auxdata-public/worldcereal/models/PhaseII/presto-ss-wc_longparquet_random-window-cut_no-time-token_epoch96.pt"
 
 def get_resources_dir():
     return dir
