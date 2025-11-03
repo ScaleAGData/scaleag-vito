@@ -742,7 +742,7 @@ def load_dataset(
         )
         _data_pivot.reset_index(inplace=True)
         df_list.append(_data_pivot)
-    df = pd.concat(df_list)
+    df = pd.concat(df_list).reset_index(drop=True)
     df = df.fillna(no_data_value)
     del df_list
     return df

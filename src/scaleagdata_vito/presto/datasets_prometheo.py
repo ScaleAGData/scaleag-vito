@@ -48,8 +48,10 @@ class ScaleAgDataset(Dataset):
         positive_labels: Optional[Union[List[Any], Any]] = None,
         composite_window: Literal["dekad", "month"] = "dekad",
         time_explicit: bool = False,
-        upper_bound: Optional[float] = None,
-        lower_bound: Optional[float] = None,
+        # upper_bound: Optional[float] = None,
+        # lower_bound: Optional[float] = None,
+        # target_mean: Optional[float] = None,
+        # target_std: Optional[float] = None,
     ):
         """
         Initialize the dataset object.
@@ -97,17 +99,20 @@ class ScaleAgDataset(Dataset):
             ], "Regression target must be of type float"
             # they need to be provided for the normalization and be based on the whole dataset distribution.
             # if set automatically, the values are based on the current batch and normalized differently across the datasets!
-            assert (upper_bound is not None) and (
-                lower_bound is not None
-            ), "upper_bound and lower_bound must be provided for the target normalization"
-            # if upper_bound is None or lower_bound is None:
-                # upper_bound = self.dataframe[target_name].max()
-                # lower_bound = self.dataframe[target_name].min()
-            self.lower_bound = lower_bound
-            self.upper_bound = upper_bound
-            self.dataframe[target_name] = self.dataframe[target_name].clip(
-                lower=lower_bound, upper=upper_bound
-            )
+            
+            # assert (upper_bound is not None) and (
+            #     lower_bound is not None
+            # ), "upper_bound and lower_bound must be provided for the target normalization"
+            # # if upper_bound is None or lower_bound is None:
+            # # upper_bound = self.dataframe[target_name].max()
+            # # lower_bound = self.dataframe[target_name].min()
+            # self.lower_bound = lower_bound
+            # self.upper_bound = upper_bound
+            # self.dataframe[target_name] = self.dataframe[target_name].clip(
+            #     lower=lower_bound, upper=upper_bound
+            # )
+            # self.target_mean = target_mean
+            # self.target_std = target_std
 
         # most of downstream classifiers expect target to be provided as [0, num_classes - 1]
         if self.task_type == "multiclass":
@@ -150,7 +155,9 @@ class ScaleAgDataset(Dataset):
 
     def get_predictors(self, row: pd.Series) -> Predictors:
         row_d = pd.Series.to_dict(row)
-        latlon = np.array([row_d["lat"], row_d["lon"]], dtype=np.float32)
+        latlon = np.reshape(
+            np.array([row_d["lat"], row_d["lon"]], dtype=np.float32), (1, 1, 2)
+        )
 
         # initialize sensor arrays filled with NODATAVALUE
         s1, s2, meteo, dem = self.initialize_inputs()
@@ -288,7 +295,8 @@ class ScaleAgDataset(Dataset):
             dtype=np.float32,  ####
         )
         if self.task_type == "regression":
-            target = self.normalize_target(target)
+            # target = self.normalize_target(target)
+            target = np.log1p(target)
 
         elif self.task_type == "binary":
             if self.positive_labels is not None:
@@ -307,10 +315,12 @@ class ScaleAgDataset(Dataset):
         return labels
 
     def normalize_target(self, target):
-        return (target - self.lower_bound) / (self.upper_bound - self.lower_bound)
+        return (target - self.target_mean) / self.target_std
+        # return (target - self.lower_bound) / (self.upper_bound - self.lower_bound)
 
     def revert_to_original_units(self, target_norm):
-        return target_norm * (self.upper_bound - self.lower_bound) + self.lower_bound
+        return target_norm * self.target_std + self.target_mean
+        # return target_norm * (self.upper_bound - self.lower_bound) + self.lower_bound
 
     def openeo_to_prometheo_units(self, band_array, band, values, idx_valid):
         if band in S1_BANDS:
@@ -345,13 +355,13 @@ class ScaleAgDataset(Dataset):
             dtype=np.float32,
         )
         meteo = np.full(
-            (self.num_timesteps, len(METEO_BANDS)),
+            (1, 1,self.num_timesteps, len(METEO_BANDS)),
             fill_value=NODATAVALUE,
             dtype=np.float32,
         )
         dem = np.full((1, 1, len(DEM_BANDS)), fill_value=NODATAVALUE, dtype=np.float32)
         return s1, s2, meteo, dem
-    
+
 
 class ScaleAgInferenceDataset(Dataset):
     BAND_MAPPING = {
@@ -372,25 +382,24 @@ class ScaleAgInferenceDataset(Dataset):
         "AGERA5-PRECIP": "precipitation",
         "AGERA5-TMEAN": "temperature",
     }
-    
+
     def __init__(self, composite_window: Literal["dekad", "month"] = "dekad"):
         self.composite_window = composite_window
-        
+
     def __len__(self):
         return len(self.all_files)
-  
-    def nc_to_array(self, filepath: Path, mask_path: Union[str, Path, None]=None) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+
+    def nc_to_array(
+        self, filepath: Path, mask_path: Union[str, Path, None] = None
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         inarr = xr.open_dataset(filepath)
         epsg = CRS.from_wkt(inarr.crs.attrs["crs_wkt"]).to_epsg()
-        inarr = (
-            inarr
-            .to_array(dim="bands")
-            .drop_sel(bands="crs")
-        )
+        inarr = inarr.to_array(dim="bands").drop_sel(bands="crs")
         return self._get_predictors(inarr, epsg, mask_path)
-        
-    
-    def _get_predictors(self, inarr: xr.DataArray, epsg: int, mask_path: Union[str, Path, None]=None) -> List[np.ndarray]:
+
+    def _get_predictors(
+        self, inarr: xr.DataArray, epsg: int, mask_path: Union[str, Path, None] = None
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         num_pixels = len(inarr.x) * len(inarr.y)
         num_timesteps = len(inarr.t)
 
@@ -400,22 +409,22 @@ class ScaleAgInferenceDataset(Dataset):
             mask = rio.open(mask_path).read(1).astype(bool)
             inarr = inarr.where(mask, other=NODATAVALUE)
         inarr = inarr.fillna(NODATAVALUE)
-        
+
         s1, s2, meteo, dem = self.initialize_inputs(num_pixels, num_timesteps)
-        latlon = self._extract_latlons(inarr, epsg)
-        
+        latlon = self._extract_latlons(inarr, epsg).reshape((num_pixels, 1, 1, 2))
+
         # for each pixel extract bands and put in predictor. treat num of pix as batch size
         # access bands
         # normalize bands openeo to presto units
-        
+
         for src_attr, dst_attr in self.BAND_MAPPING.items():
             # retrieve ts for each band column df_val
             if src_attr in inarr.bands.values:
                 values = np.swapaxes(
-                        inarr.sel(bands=src_attr).values.reshape((num_timesteps, -1)),
-                        0,
-                        1,
-                    )
+                    inarr.sel(bands=src_attr).values.reshape((num_timesteps, -1)),
+                    0,
+                    1,
+                )
                 # values = np.nan_to_num(values, nan=NODATAVALUE)
                 idx_valid = values != NODATAVALUE
                 if dst_attr in S2_BANDS:
@@ -431,11 +440,15 @@ class ScaleAgInferenceDataset(Dataset):
                         meteo, dst_attr, values, idx_valid
                     )
                 elif dst_attr in DEM_BANDS:
-                    dem = self.openeo_to_prometheo_units(dem, dst_attr, values, idx_valid) 
+                    dem = self.openeo_to_prometheo_units(
+                        dem, dst_attr, values, idx_valid
+                    )
         # extend the dimension of the timestamp array to match the number of pixels
-        timestamps = np.repeat(self.get_date_array(inarr, num_timesteps)[np.newaxis, :, :], num_pixels, 0)
+        timestamps = np.repeat(
+            self.get_date_array(inarr, num_timesteps)[np.newaxis, :, :], num_pixels, 0
+        )
         return s1, s2, meteo, dem, latlon, timestamps
-        
+
     def _get_correct_date(self, dt_in: str) -> np.datetime64:
         """
         Determine the correct date based on the input date and compositing window.
@@ -483,9 +496,7 @@ class ScaleAgInferenceDataset(Dataset):
         # truncate to month precision
         start_month = np.datetime64(start_date, "M")
         # generate date vector based on the number of timesteps
-        date_vector = start_month + np.arange(
-            num_timesteps, dtype="timedelta64[M]"
-        )
+        date_vector = start_month + np.arange(num_timesteps, dtype="timedelta64[M]")
 
         # generate day, month and year vectors with numpy operations
         days = np.ones(num_timesteps, dtype=int)
@@ -498,7 +509,7 @@ class ScaleAgInferenceDataset(Dataset):
         Generate an array of dates based on the specified compositing window.
         """
         # adjust start date depending on the compositing window
-        date = str(inarr.t.values[0].astype('datetime64[D]'))
+        date = str(inarr.t.values[0].astype("datetime64[D]"))
         start_date = self._get_correct_date(date)
 
         # Generate date vector depending on the compositing window
@@ -508,9 +519,9 @@ class ScaleAgInferenceDataset(Dataset):
             days, months, years = self._get_monthly_dates(start_date, num_timesteps)
         else:
             raise ValueError(f"Unknown compositing window: {self.composite_window}")
-        
+
         return np.stack([days, months, years], axis=1)
-    
+
     def _extract_latlons(self, inarr: xr.DataArray, epsg: int) -> np.ndarray:
         """
         Extracts latitudes and longitudes from the input xarray.DataArray.
@@ -531,7 +542,7 @@ class ScaleAgInferenceDataset(Dataset):
 
         # 2D array where each row represents a pair of latitude and longitude coordinates.
         return flat_latlons
-    
+
     def openeo_to_prometheo_units(self, band_array, band, values, idx_valid):
         if band in S1_BANDS:
             # convert to dB
@@ -549,10 +560,9 @@ class ScaleAgInferenceDataset(Dataset):
         elif band in DEM_BANDS:
             band_array[:, 0, 0, DEM_BANDS.index(band)] = values[:, 0]
         else:
-            raise ValueError(f"Unknown band {band}")    
+            raise ValueError(f"Unknown band {band}")
         return band_array
-    
-        
+
     def initialize_inputs(self, num_pix: int, num_timesteps: int):
         s1 = np.full(
             (num_pix, 1, 1, num_timesteps, len(S1_BANDS)),
@@ -565,28 +575,34 @@ class ScaleAgInferenceDataset(Dataset):
             dtype=np.float32,
         )
         meteo = np.full(
-            (num_pix, num_timesteps, len(METEO_BANDS)),
+            (num_pix, 1, 1, num_timesteps, len(METEO_BANDS)),
             fill_value=NODATAVALUE,
             dtype=np.float32,
         )
-        dem = np.full((num_pix, 1, 1, len(DEM_BANDS)), fill_value=NODATAVALUE, dtype=np.float32)
+        dem = np.full(
+            (num_pix, 1, 1, len(DEM_BANDS)), fill_value=NODATAVALUE, dtype=np.float32
+        )
         return s1, s2, meteo, dem
-       
+
+
 class InferenceDataset(Dataset):
     def __init__(self, s1, s2, meteo, dem, latlon, timestamps):
         self.data = [
-            Predictors(**dict(
-                s1=s1[i],
-                s2=s2[i],
-                meteo=meteo[i],
-                dem=dem[i],
-                latlon=latlon[i],
-                timestamps=timestamps[i],
-            ))
-            for i in range(len(s1))]
-        
+            Predictors(
+                **dict(
+                    s1=s1[i],
+                    s2=s2[i],
+                    meteo=meteo[i],
+                    dem=dem[i],
+                    latlon=latlon[i],
+                    timestamps=timestamps[i],
+                )
+            )
+            for i in range(len(s1))
+        ]
+
     def __getitem__(self, idx):
         return self.data[idx]
-    
+
     def __len__(self):
         return len(self.data)

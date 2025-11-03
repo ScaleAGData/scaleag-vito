@@ -232,7 +232,6 @@ def create_job_sample_scaleag(
     inputs = scaleag_preprocessed_inputs(
         connection=connection,
         backend_context=backend_context,
-        spatial_extent=geometry,
         temporal_extent=temporal_extent,
         composite_window=row.composite_window,
         s2_tile=s2_tile,
@@ -254,7 +253,7 @@ def create_job_sample_scaleag(
         "python-memory": python_memory,
         "executor-cores": "1",
         "max-executors": max_executors,
-        "soft-errors": "true",
+        "soft-errors": 0.1,
     }
 
     return cube.create_job(
@@ -467,13 +466,16 @@ def extract(args):
         args.output_folder.mkdir(parents=True, exist_ok=True)
         # raise ValueError(f"Output folder {args.output_folder} does not exist.")
 
-    tracking_df_path = Path(args.output_folder) / "job_tracking.csv"
+    # create a tracking file specific for the dataset to avoid preventing extractions to run
+    # when a new dataset is extracted in the same output folder
+    dataset_name = args.input_df.stem
+    tracking_df_path = Path(args.output_folder) / f"job_tracking_{dataset_name}.csv"
 
     # # Load the input dataframe and build the job dataframe
     # if args.routine == "training":
     #     assert args.input_df != "", "Input dataframe is required for the training routine."
     input_df = load_dataframe(args.input_df)
-        
+
     # if input_df[args.unique_id_column] != "":
     input_df["sample_id"] = input_df[args.unique_id_column]
     assert input_df["sample_id"].is_unique, "The unique ID column is not unique."
@@ -524,9 +526,11 @@ def extract(args):
 
 
 def generate_input_for_extractions(input_dict):
-    start_date = None if "start_date" not in input_dict.keys() else input_dict["start_date"]
+    start_date = (
+        None if "start_date" not in input_dict.keys() else input_dict["start_date"]
+    )
     end_date = None if "end_date" not in input_dict.keys() else input_dict["end_date"]
-    
+
     job_inputs = pd.Series(
         {
             "collection": ExtractionCollection.SAMPLE_SCALEAG,
@@ -536,9 +540,11 @@ def generate_input_for_extractions(input_dict):
             "end_date": end_date,
             "max_locations": 50,
             "memory": "1800m",
-            "python_memory": "1900m",
+            "executor-memory": "3G",
+            "python_memory": "3G",
             "max_executors": 22,
             "parallel_jobs": 2,
+            "soft-errors": 0.1,
             "restart_failed": True,
             "unique_id_column": input_dict["unique_id_column"],
             "composite_window": input_dict["composite_window"],
@@ -546,6 +552,7 @@ def generate_input_for_extractions(input_dict):
     )
 
     return job_inputs
+
 
 def generate_extraction_job_command(
     job_params, extraction_script_path="scaleag-vito/scripts/extractions/extract.py"
@@ -599,12 +606,13 @@ def collect_inputs_for_inference(
     inputs = scaleag_preprocessed_inputs(
         connection=cdse_connection(),
         backend_context=backend_context,
-        spatial_extent=spatial_extent,
         temporal_extent=temporal_extent,
         tile_size=tile_size,
         composite_window=composite_window,
-        fetch_type=FetchType.TILE
+        fetch_type=FetchType.TILE,
     )
+
+    inputs = inputs.filter_bbox(dict(spatial_extent))
 
     JOB_OPTIONS = {
         "driver-memory": "4g",
@@ -616,8 +624,9 @@ def collect_inputs_for_inference(
     if job_options is not None:
         JOB_OPTIONS.update(job_options)
 
+    outputfile = Path(output_path) / f"{output_filename}"
     inputs.execute_batch(
-        outputfile=output_path / f"{output_filename}",
+        outputfile=outputfile,
         out_format="NetCDF",
         title="ScaleAgData collect inference inputs",
         description="Job that collects inputs for ScaleAg inference",
