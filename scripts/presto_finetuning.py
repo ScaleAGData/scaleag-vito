@@ -1,36 +1,51 @@
 # import sys
 from pathlib import Path
 
-# sys.path.append("/home/vito/millig/gio/prometheo/")
+from loguru import logger
 from prometheo import finetune
-from prometheo.datasets.scaleag import ScaleAgDataset  # fix installation
 from prometheo.finetune import Hyperparams
-from prometheo.models.presto.wrapper import PretrainedPrestoWrapper, load_pretrained
+from prometheo.models.presto import param_groups_lrd
+from prometheo.models.presto.wrapper import PretrainedPrestoWrapper, load_presto_weights
+from prometheo.predictors import collate_fn
 from torch import nn
+from torch.optim import AdamW, lr_scheduler
+from torch.utils.data import DataLoader
 
+from scaleagdata_vito.presto.datasets_prometheo import ScaleAgDataset
 from scaleagdata_vito.presto.presto_df import load_dataset
-from scaleagdata_vito.presto.utils import evaluate_finetuned_model, train_test_val_split
+from scaleagdata_vito.presto.utils import (
+    evaluate_finetuned_model,
+    get_pretrained_model_url,
+    train_test_val_split,
+)
 
-p = "/projects/HEScaleAgData/timeseries_modelling/datasets/LPIS_Extractions_2024/all_extractions/"
+extractions_name = "LPIS_Extractions_2024"
+p = f"/projects/HEScaleAgData/timeseries_modelling/datasets/{extractions_name}/all_extractions/"
+experiment_name = "presto_finetuning_LPIS_2024_dekad_median_yield"
+model_output_dir = (
+    Path(f"/projects/HEScaleAgData/models/presto_finetuned/{extractions_name}")
+    / experiment_name
+)
+model_output_dir.mkdir(parents=True, exist_ok=True)
 # load extracted dataset
-window_of_interest = ["2022-04-01", "2022-10-31"]
+target_name = "median_yield"
+composite_window = "dekad"
+window_of_interest = ["2024-04-01", "2024-10-31"]
 df = load_dataset(
-    files_root_dir="/projects/TAP/HEScaleAgData/data/AVR_subfields/extractions_31012025/",
+    files_root_dir=p,
     window_of_interest=window_of_interest,
-    use_valid_time=False,
-    required_min_timesteps=36,
-    buffer_window=8,
     no_data_value=65535,
-    composite_window="dekad",
+    composite_window=composite_window,
 )
 
 
 #### prepare datasets for training
-
 df_train, df_val, df_test = train_test_val_split(
     df=df, group_sample_by="parentname", sampling_frac=0.8
 )
 
+target_mean = df_train[target_name].mean()
+target_std = df_train[target_name].std()
 
 # initialize datasets
 num_timesteps = df.available_timesteps.max()
@@ -39,59 +54,106 @@ train_ds = ScaleAgDataset(
     df_train,
     num_timesteps=num_timesteps,
     task_type="regression",
-    target_name="median_yield",
-    compositing_window="dekad",
-    upper_bound=120000,
-    lower_bound=10000,
+    target_name=target_name,
+    compositing_window=composite_window,
+    target_mean=target_mean,
+    target_std=target_std,
 )
 val_ds = ScaleAgDataset(
     df_val,
     num_timesteps=num_timesteps,
     task_type="regression",
-    target_name="median_yield",
-    compositing_window="dekad",
-    upper_bound=120000,
-    lower_bound=10000,
+    target_name=target_name,
+    compositing_window=composite_window,
+    target_mean=target_mean,
+    target_std=target_std,
 )
 
-#### load pretrained model
-pretrained_model_path = (
-    "/home/vito/millig/gio/models/presto_ss/dekadal/output/presto-ss-wc_10D.pt"
+test_ds = ScaleAgDataset(
+    df_test,
+    num_timesteps=num_timesteps,
+    task_type="regression",
+    target_name=target_name,
+    compositing_window=composite_window,
+    target_mean=target_mean,
+    target_std=target_std,
 )
-# pretrained_model_path = "https://artifactory.vgt.vito.be/artifactory/auxdata-public/scaleagdata/models/presto-ss-wc_10D.pt"
+
+# Run finetuning
+pretrained_model_path = get_pretrained_model_url(composite_window=composite_window)
+batch_size = 32
+num_workers = 2
+patience = 10
+max_epochs = 100
+unfreeze_epoch = 5
+lr = 1e-4
+freeze_layers = "encoder"
+
+
+regression = True
+num_outputs = 1
+loss_fn = nn.MSELoss()
+
+if pretrained_model_path is None:
+    logger.info("No pretrained model path provided. Using randomly initialized model.")
+
+# if composite_window == "dekad":
+# try:
 model = PretrainedPrestoWrapper(
-    num_outputs=1,
-    regression=True,
+    num_outputs=num_outputs,
+    regression=regression,
 )
-model = load_pretrained(model, pretrained_model_path, strict=False)
+model = load_presto_weights(model, pretrained_model_path, strict=False)
 
+# except Exception as e:
+#     model = PretrainedPrestoWrapper(
+#         num_outputs=num_outputs,
+#         regression=regression,
+#         pretrained_model_path=pretrained_model_path,
+#     )
 
-# evaluate_finetuned_model(model, val_ds, num_workers=2, batch_size=32)
-hyperparams = Hyperparams(max_epochs=50, batch_size=256, patience=1, num_workers=2)
-output_dir = Path("/home/vito/millig/gio/presto_exp/prometheo_exp")
+hyperparams = Hyperparams(
+    max_epochs=max_epochs,
+    batch_size=batch_size,
+    patience=patience,
+    num_workers=num_workers,
+    lr=lr,
+)
+parameters = param_groups_lrd(model)
+optimizer = AdamW(parameters, lr=hyperparams.lr)
+scheduler = lr_scheduler.ExponentialLR(optimizer, gamma=0.99)
 
-# set loss depending on the task type
-if train_ds.task_type == "regression":
-    loss_fn = nn.MSELoss()
-elif train_ds.task_type == "binary":
-    loss_fn = nn.BCEWithLogitsLoss()
-else:
-    loss_fn = nn.CrossEntropyLoss()
-
-finetuned_model = finetune.run_finetuning(
-    model,
+train_dl = DataLoader(
     train_ds,
+    batch_size=batch_size,
+    shuffle=True,
+    num_workers=num_workers,
+    collate_fn=collate_fn,
+)
+val_dl = DataLoader(
     val_ds,
-    experiment_name="presto-ss-wc-10D-ft-dek",
-    output_dir=output_dir,
+    batch_size=batch_size,
+    shuffle=False,
+    num_workers=num_workers,
+    collate_fn=collate_fn,
+)
+
+logger.info(f"Finetuning the model on {train_ds.task_type} task")
+finetuned_model = finetune.run_finetuning(
+    model=model,
+    train_dl=train_dl,
+    val_dl=val_dl,
+    experiment_name=experiment_name,
+    output_dir=model_output_dir,
     loss_fn=loss_fn,
+    optimizer=optimizer,
+    scheduler=scheduler,
     hyperparams=hyperparams,
+    setup_logging=True,  # Already setup logging
+    freeze_layers=freeze_layers,
+    unfreeze_epoch=unfreeze_epoch,
 )
 
-finetuned_model = PretrainedPrestoWrapper(num_outputs=1, regression=True)
-finetuned_model = load_pretrained(
-    finetuned_model,
-    "/home/vito/millig/gio/presto_exp/prometheo_exp/presto-ss-wc-10D-ft-dek.pt",
+evaluate_finetuned_model(
+    finetuned_model, test_ds, num_workers=num_workers, batch_size=batch_size
 )
-
-evaluate_finetuned_model(finetuned_model, val_ds, num_workers=2, batch_size=32)
