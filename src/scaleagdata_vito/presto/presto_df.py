@@ -1,7 +1,7 @@
 import logging
 import sys
 from pathlib import Path
-from typing import Dict, List, Literal, Optional, Union
+from typing import List, Literal, Optional
 
 import numpy as np
 import pandas as pd
@@ -199,7 +199,7 @@ class TimeSeriesProcessor:
         )
         df_long["valid_position"] = df_long["sample_id"].map(valid_position)
         return df_long
-    
+
     @staticmethod
     def get_expected_dates(start_date, end_date, freq):
         start_date = _get_correct_date(start_date, compositing_window=freq)
@@ -211,7 +211,7 @@ class TimeSeriesProcessor:
         else:
             raise NotImplementedError(f"Frequency {freq} not supported")
         return pd.DatetimeIndex(date_array)
-    
+
     @staticmethod
     def fill_missing_dates(
         df_long: pd.DataFrame, freq: str, index_columns: List[str]
@@ -234,7 +234,11 @@ class TimeSeriesProcessor:
 
         unique_date_pairs = df_long[["start_date", "end_date"]].drop_duplicates()
         unique_date_pairs["expected_n_observations"] = unique_date_pairs.apply(
-            lambda xx: len(TimeSeriesProcessor.get_expected_dates(xx["start_date"], xx["end_date"], freq)),
+            lambda xx: len(
+                TimeSeriesProcessor.get_expected_dates(
+                    xx["start_date"], xx["end_date"], freq
+                )
+            ),
             axis=1,
         )
         unique_date_pairs.set_index(["start_date", "end_date"], inplace=True)
@@ -603,7 +607,7 @@ def get_buffered_window_of_interest(
     window_of_interest: List[str],
     buffer: int = 3,
     compositing_window: Literal["dekad", "month"] = "dekad",
-):
+) -> List[str]:
     start_date = _get_correct_date(
         window_of_interest[0], compositing_window=compositing_window
     )
@@ -625,7 +629,7 @@ def window_of_interest_from_valid_date(
     valid_dates: List[str],
     buffer: int,
     compositing_window: Literal["dekad", "month"] = "dekad",
-):
+) -> List[str]:
     start_dates, end_dates = [], []
     for date in valid_dates:
         curr_window_of_interest = [date, date]
@@ -640,7 +644,10 @@ def window_of_interest_from_valid_date(
 
 
 def out_window_to_nodata(
-    df: pd.DataFrame, expected_dates: pd.DatetimeIndex, window_of_interest: List[str], no_data_value: int = 65535
+    df: pd.DataFrame,
+    expected_dates: pd.DatetimeIndex,
+    window_of_interest: Optional[List[str]],
+    no_data_value: int = 65535,
 ):
     bands = [
         "S1-SIGMA0-VV",
@@ -664,42 +671,46 @@ def out_window_to_nodata(
     # existing_bands = [b for b in bands if b in df.columns]
 
     # Convert timestamps and window_of_interest to np.datetime64
-    cutoff_start_date = np.datetime64(window_of_interest[0], "D")
-    cutoff_end_date = np.datetime64(window_of_interest[1], "D")
+    if window_of_interest is not None:
+        cutoff_start_date = np.datetime64(window_of_interest[0], "D")
+        cutoff_end_date = np.datetime64(window_of_interest[1], "D")
 
-    # # Identify rows outside the window of interest
-    # outside_range = (df["timestamp"] < cutoff_start_date) | (
-    #     df["timestamp"] > cutoff_end_date
-    # )
-    outside_range_indices = [
-        i for i, ts in enumerate(expected_dates)
-        if (ts < cutoff_start_date) or (ts > cutoff_end_date)
-    ]
-    # outside_range_indices = expected_dates[
-    #     (expected_dates < cutoff_start_date) | (expected_dates > cutoff_end_date)
-    # ]
+        # # Identify rows outside the window of interest
+        # outside_range = (df["timestamp"] < cutoff_start_date) | (
+        #     df["timestamp"] > cutoff_end_date
+        # )
+        outside_range_indices = [
+            i
+            for i, ts in enumerate(expected_dates)
+            if (ts < cutoff_start_date) or (ts > cutoff_end_date)
+        ]
+        # outside_range_indices = expected_dates[
+        #     (expected_dates < cutoff_start_date) | (expected_dates > cutoff_end_date)
+        # ]
 
-    time_steps_to_mask = [f"{b}-ts{ts}" for ts in outside_range_indices for b in bands]
-    # Assign no_data_value to the relevant bands for rows outside the range
-    df.loc[:, time_steps_to_mask] = no_data_value
+        time_steps_to_mask = [
+            f"{b}-ts{ts}" for ts in outside_range_indices for b in bands
+        ]
+        # Assign no_data_value to the relevant bands for rows outside the range
+        df.loc[:, time_steps_to_mask] = no_data_value
 
-    return df
+        return df
+    else:
+        raise ValueError(
+            "window_of_interest must be provided for out_window_to_nodata."
+        )
 
 
 def extract_window_of_interest(
-    df: pd.DataFrame, window_of_interest: List[str], buffer: Optional[int] = None, out_of_window_to_nodata: bool = False
+    df: pd.DataFrame,
+    window_of_interest: List[str],
+    buffer: Optional[int] = None,
 ):
 
     if buffer is not None:
         window_of_interest = get_buffered_window_of_interest(
             window_of_interest, buffer=buffer
         )
-
-    # set values outside the window of interest to no_data_value
-    # if out_of_window_to_nodata:
-    #     df_filtered = out_window_to_nodata(
-    #         df, window_of_interest, no_data_value=NODATAVALUE
-    #     )
     else:
         # Convert timestamps and window_of_interest to np.datetime64
         cutoff_start_date = np.datetime64(window_of_interest[0], "D")
@@ -718,14 +729,13 @@ def extract_window_of_interest(
 
 
 def process_data_with_window(
-    _data, 
-    window_of_interest,
-    required_min_timesteps,
-    use_valid_time,
-    buffer_window,
-    composite_window,
-    out_of_window_to_nodata=False,
-):
+    _data: pd.DataFrame,
+    window_of_interest: Optional[List[str]],
+    required_min_timesteps: int,
+    use_valid_time: bool,
+    buffer_window: int,
+    composite_window: Literal["dekad", "month"],
+) -> pd.DataFrame:
     if (
         (window_of_interest is None)
         and ("original_date" in _data.columns)
@@ -746,20 +756,17 @@ def process_data_with_window(
                 buffer=buffer_window,
                 compositing_window=composite_window,
             )
-
-        if not out_window_to_nodata:
-            # filter data to only include data within the window of interest
-            # _data = extract_window_of_interest(_data, window_of_interest_buffered) #, out_of_window_to_nodata=out_of_window_to_nodata)
-            _data = extract_window_of_interest(_data, window_of_interest) #, out_of_window_to_nodata=out_of_window_to_nodata)
+        _data = extract_window_of_interest(_data, window_of_interest)
     _data_pivot = process_parquet(
         _data, freq=composite_window, use_valid_time=use_valid_time
     )
     _data_pivot.reset_index(inplace=True)
     return _data_pivot
-                
+
+
 def load_dataset(
     files_root_dir: str,
-    window_of_interest: Optional[Union[List[str], Dict[str, List[str]], None]] = None,
+    window_of_interest: Optional[List[str]],
     use_valid_time: bool = False,
     required_min_timesteps: int = 36,
     buffer_window: int = 0,
@@ -796,16 +803,15 @@ def load_dataset(
             use_valid_time,
             buffer_window,
             composite_window,
-            # out_of_window_to_nodata
         )
-        df_list.append(_data_pivot)       
+        df_list.append(_data_pivot)
     df = pd.concat(df_list).reset_index(drop=True)
     df = df.fillna(no_data_value)
     del df_list
     if out_of_window_to_nodata:
-        expected_dates=TimeSeriesProcessor.get_expected_dates(
-                df["start_date"].min(), df["end_date"].max(), composite_window
-            )
+        expected_dates = TimeSeriesProcessor.get_expected_dates(
+            df["start_date"].min(), df["end_date"].max(), composite_window
+        )
         df = out_window_to_nodata(
             df,
             expected_dates=expected_dates,

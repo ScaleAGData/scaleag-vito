@@ -1,5 +1,6 @@
 # import sys
 from pathlib import Path
+from typing import Literal
 
 from loguru import logger
 from prometheo import finetune
@@ -29,7 +30,7 @@ model_output_dir = (
 model_output_dir.mkdir(parents=True, exist_ok=True)
 # load extracted dataset
 target_name = "median_yield"
-composite_window = "dekad"
+composite_window: Literal["dekad", "month"] = "dekad"
 window_of_interest = ["2024-04-01", "2024-10-31"]
 df = load_dataset(
     files_root_dir=p,
@@ -37,7 +38,6 @@ df = load_dataset(
     no_data_value=65535,
     composite_window=composite_window,
 )
-
 
 #### prepare datasets for training
 df_train, df_val, df_test = train_test_val_split(
@@ -55,7 +55,7 @@ train_ds = ScaleAgDataset(
     num_timesteps=num_timesteps,
     task_type="regression",
     target_name=target_name,
-    compositing_window=composite_window,
+    composite_window=composite_window,
     target_mean=target_mean,
     target_std=target_std,
 )
@@ -64,7 +64,7 @@ val_ds = ScaleAgDataset(
     num_timesteps=num_timesteps,
     task_type="regression",
     target_name=target_name,
-    compositing_window=composite_window,
+    composite_window=composite_window,
     target_mean=target_mean,
     target_std=target_std,
 )
@@ -74,7 +74,7 @@ test_ds = ScaleAgDataset(
     num_timesteps=num_timesteps,
     task_type="regression",
     target_name=target_name,
-    compositing_window=composite_window,
+    composite_window=composite_window,
     target_mean=target_mean,
     target_std=target_std,
 )
