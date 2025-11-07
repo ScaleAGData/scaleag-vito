@@ -17,7 +17,6 @@ from scaleagdata_vito.presto.datasets_prometheo import (
     ScaleAgInferenceDataset,
 )
 
-
 class PrestoPredictor:
     def __init__(
         self,
@@ -41,8 +40,8 @@ class PrestoPredictor:
     def predict(
         self,
         path_to_file: Path,
-        upper_bound: Union[float, None] = None,
-        lower_bound: Union[float, None] = None,
+        target_mean: Union[float, None] = None,
+        target_std: Union[float, None] = None,
         mask_path: Union[str, Path, None] = None,
     ) -> np.ndarray:
         cl = ScaleAgInferenceDataset(composite_window=self.composite_window)
@@ -69,16 +68,16 @@ class PrestoPredictor:
                     probs = torch.softmax(output, dim=-1).cpu().numpy()
                 elif self.task_type == "regression":
                     probs = output.cpu().numpy()
-                    # if upper_bound is not None and lower_bound is not None:
-                    #     probs = revert_to_original_units(
-                    #         probs, upper_bound, lower_bound
-                    #     )
-                    probs = np.expm1(probs)
-                    # else:
-                    #     raise ValueError(
-                    #         "upper_bound and lower_bound used during training"
-                    #         "must be provided for converting results to origininal units"
-                    #     )
+                    if target_mean is not None and target_std is not None:
+                        probs = self.revert_to_original_units(
+                            probs, target_mean, target_std
+                        )
+                    # probs = np.expm1(probs)
+                    else:
+                        raise ValueError(
+                            "target_mean and target_std used during training"
+                            "must be provided for converting results to origininal units"
+                        )
                 else:
                     raise ValueError(
                         "task_type must be either 'binary', 'multiclass' or 'regression'"
@@ -99,8 +98,8 @@ class PrestoPredictor:
         return preds
 
 
-def revert_to_original_units(target_norm, upper_bound, lower_bound):
-    return target_norm * (upper_bound - lower_bound) + lower_bound
+    def revert_to_original_units(self, target_norm, target_mean, target_std):
+        return target_norm * target_std + target_mean
 
 
 def reshape_result(result: np.ndarray, path_to_input_file: Path):

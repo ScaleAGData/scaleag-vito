@@ -551,11 +551,11 @@ class ScaleAgInferenceDataset(Dataset):
         elif band == "precipitation":
             # scaling, and AgERA5 is in mm, Presto expects m
             values[idx_valid] = values[idx_valid] / (100 * 1000.0)
-            band_array[:, :, METEO_BANDS.index(band)] = values
+            band_array[:, 0, 0, :, METEO_BANDS.index(band)] = values
         elif band == "temperature":
             # remove scaling. conversion to celsius is done in the normalization
             values[idx_valid] = values[idx_valid] / 100
-            band_array[:, :, METEO_BANDS.index(band)] = values
+            band_array[:, 0, 0, :, METEO_BANDS.index(band)] = values
         elif band in DEM_BANDS:
             band_array[:, 0, 0, DEM_BANDS.index(band)] = values[:, 0]
         else:
