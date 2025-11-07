@@ -704,7 +704,7 @@ def load_dataset(
     composite_window: Literal["dekad", "month"] = "dekad",
 ):
 
-    files = list(Path(files_root_dir).glob("*/*/*parquet"))
+    files = list(Path(files_root_dir).rglob("**/*parquet"))
     df_list = []
 
     for f in tqdm(files):
