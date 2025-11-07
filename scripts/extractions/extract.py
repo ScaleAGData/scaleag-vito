@@ -90,23 +90,35 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    # import pandas as pd
-    # args = pd.Series(
-    #     dict(
-    #         collection = ExtractionCollection.SAMPLE_SCALEAG,
-    #         output_folder=Path("/home/giorgia/Private/data/scaleag/18032025/"),
-    #         input_df=Path("/home/giorgia/Private/data/scaleag/18032025/LPIS_subfields_Flanders_yield_cleaned.geojson"),
-    #         start_date="2022-01-01",
-    #         end_date="2022-12-31",
-    #         unique_id_column="fieldname",
-    #         composite_window="dekad",
-    #         max_locations=50,
-    #         memory="1800m",
-    #         python_memory="1900m",
-    #         max_executors=22,
-    #         parallel_jobs=10,
-    #         restart_failed=False,
-    #     )
-    # )
+    import json
 
+    import pandas as pd
+
+    input_filename = Path(
+                "/vitodata/scaleagdata/data/pixels_fields_netherlands_2024_harvest_2024/pixels_fields_netherlands_2024_harvest.geojson"
+            )
+    args = pd.Series(
+        dict(
+            collection=ExtractionCollection.SAMPLE_SCALEAG,
+            output_folder=Path(f"/vitodata/scaleagdata/extractions/04112025/ref_id={input_filename.stem}/"),
+            input_df=input_filename,
+            start_date="2024-03-01",
+            end_date="2025-02-28",
+            unique_id_column="fieldname",
+            composite_window="dekad",
+            max_locations=250,
+            memory="1800m",
+            executor_memory="3G",
+            python_memory="3G",
+            max_executors=22,
+            parallel_jobs=10,
+            soft_errors=0.1,
+            restart_failed=False,
+        )
+    )
+    output_json_path = args.output_folder / "extraction_args.json"
+    Path(args.output_folder).mkdir(parents=True, exist_ok=True)
+    with open(output_json_path, "w") as f:
+        args_str = args.apply(str)
+        json.dump(args_str.to_dict(), f, indent=4)
     extract(args)

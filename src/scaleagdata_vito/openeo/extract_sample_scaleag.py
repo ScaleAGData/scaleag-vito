@@ -149,7 +149,9 @@ def create_job_dataframe_sample_scaleag(
         job["lat"] = job.geometry.centroid.y
         job["lon"] = job.geometry.centroid.x
 
-        if "date" in job.columns:
+        if "date" in job.columns and (
+            start_date_user is not None or end_date_user is not None
+        ):
             job.rename(columns={"date": "original_date"}, inplace=True)
             job["original_date"] = pd.to_datetime(job["original_date"])
 
@@ -168,6 +170,7 @@ def create_job_dataframe_sample_scaleag(
                     "Start and end dates are required when no date column is present."
                 )
             else:
+                logging.info("Using user-defined start and end dates.")
                 start_date = datetime.strptime(start_date_user, "%Y-%m-%d")
                 end_date = datetime.strptime(end_date_user, "%Y-%m-%d")
 
@@ -534,7 +537,8 @@ def generate_input_for_extractions(input_dict):
     job_inputs = pd.Series(
         {
             "collection": ExtractionCollection.SAMPLE_SCALEAG,
-            "output_folder": Path(input_dict["output_folder"]),
+            "output_folder": Path(input_dict["output_folder"])
+            / f"ref_id={Path(input_dict['input_df']).stem}",
             "input_df": Path(input_dict["input_df"]),
             "start_date": start_date,
             "end_date": end_date,
@@ -543,7 +547,7 @@ def generate_input_for_extractions(input_dict):
             "executor-memory": "3G",
             "python_memory": "3G",
             "max_executors": 22,
-            "parallel_jobs": 4,
+            "parallel_jobs": 10,
             "soft-errors": 0.1,
             "restart_failed": True,
             "unique_id_column": input_dict["unique_id_column"],

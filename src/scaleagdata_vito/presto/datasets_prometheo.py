@@ -50,8 +50,8 @@ class ScaleAgDataset(Dataset):
         time_explicit: bool = False,
         # upper_bound: Optional[float] = None,
         # lower_bound: Optional[float] = None,
-        # target_mean: Optional[float] = None,
-        # target_std: Optional[float] = None,
+        target_mean: Optional[float] = None,
+        target_std: Optional[float] = None,
     ):
         """
         Initialize the dataset object.
@@ -103,16 +103,13 @@ class ScaleAgDataset(Dataset):
             # assert (upper_bound is not None) and (
             #     lower_bound is not None
             # ), "upper_bound and lower_bound must be provided for the target normalization"
-            # # if upper_bound is None or lower_bound is None:
-            # # upper_bound = self.dataframe[target_name].max()
-            # # lower_bound = self.dataframe[target_name].min()
             # self.lower_bound = lower_bound
             # self.upper_bound = upper_bound
             # self.dataframe[target_name] = self.dataframe[target_name].clip(
             #     lower=lower_bound, upper=upper_bound
             # )
-            # self.target_mean = target_mean
-            # self.target_std = target_std
+            self.target_mean = target_mean
+            self.target_std = target_std
 
         # most of downstream classifiers expect target to be provided as [0, num_classes - 1]
         if self.task_type == "multiclass":
@@ -295,8 +292,8 @@ class ScaleAgDataset(Dataset):
             dtype=np.float32,  ####
         )
         if self.task_type == "regression":
-            # target = self.normalize_target(target)
-            target = np.log1p(target)
+            target = self.normalize_target(target)
+            # target = np.log1p(target)
 
         elif self.task_type == "binary":
             if self.positive_labels is not None:
@@ -315,10 +312,12 @@ class ScaleAgDataset(Dataset):
         return labels
 
     def normalize_target(self, target):
+        logger.info("Normalizing target using provided mean and std.")
         return (target - self.target_mean) / self.target_std
         # return (target - self.lower_bound) / (self.upper_bound - self.lower_bound)
 
     def revert_to_original_units(self, target_norm):
+        logger.info("Reverting normalized target to original units.")
         return target_norm * self.target_std + self.target_mean
         # return target_norm * (self.upper_bound - self.lower_bound) + self.lower_bound
 
