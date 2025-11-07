@@ -775,7 +775,7 @@ def load_dataset(
     out_of_window_to_nodata: bool = False,
 ):
 
-    files = list(Path(files_root_dir).glob("**/*parquet"))
+    files = list(Path(files_root_dir).rglob("**/*parquet"))
     df_list = []
 
     for f in tqdm(files):
