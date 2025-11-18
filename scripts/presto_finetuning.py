@@ -7,11 +7,9 @@ from prometheo import finetune
 from prometheo.finetune import Hyperparams
 from prometheo.models.presto import param_groups_lrd
 from prometheo.models.presto.wrapper import PretrainedPrestoWrapper, load_presto_weights
-from prometheo.predictors import collate_fn
-from torch import nn
-from torch.optim import AdamW, lr_scheduler
-from torch.utils.data import DataLoader
 
+# from prometheo.models import Presto
+from prometheo.predictors import collate_fn
 from scaleagdata_vito.presto.datasets_prometheo import ScaleAgDataset
 from scaleagdata_vito.presto.presto_df import load_dataset
 from scaleagdata_vito.presto.utils import (
@@ -19,9 +17,12 @@ from scaleagdata_vito.presto.utils import (
     get_pretrained_model_url,
     train_test_val_split,
 )
+from torch import nn
+from torch.optim import AdamW, lr_scheduler
+from torch.utils.data import DataLoader
 
 extractions_name = "LPIS_Extractions_2024"
-p = f"/projects/HEScaleAgData/timeseries_modelling/datasets/{extractions_name}/all_extractions/"
+p = f"/projects/HEScaleAgData/timeseries_modelling/datasets/{extractions_name}/extractions/"
 experiment_name = "presto_finetuning_LPIS_2024_dekad_median_yield"
 model_output_dir = (
     Path(f"/projects/HEScaleAgData/models/presto_finetuned/{extractions_name}")
@@ -87,7 +88,7 @@ patience = 10
 max_epochs = 100
 unfreeze_epoch = 5
 lr = 1e-4
-freeze_layers = "encoder"
+freeze_layers = ["encoder"]
 
 
 regression = True
@@ -104,7 +105,6 @@ model = PretrainedPrestoWrapper(
     regression=regression,
 )
 model = load_presto_weights(model, pretrained_model_path, strict=False)
-
 # except Exception as e:
 #     model = PretrainedPrestoWrapper(
 #         num_outputs=num_outputs,
