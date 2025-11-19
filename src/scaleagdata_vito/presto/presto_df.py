@@ -1,5 +1,4 @@
 import logging
-import sys
 from pathlib import Path
 from typing import List, Literal, Optional
 
@@ -7,7 +6,6 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
-sys.path.append("/home/vito/millig/gio/prometheo/")
 logger = logging.getLogger("__main__")
 
 STATIC_FEATURES = ["DEM-alt-20m", "DEM-slo-20m", "lat", "lon"]
@@ -819,12 +817,3 @@ def load_dataset(
             no_data_value=no_data_value,
         )
     return df
-
-
-# output_folder = "/home/giorgia/Private/data/geomaize/extractions_24102025"
-# extractions = load_dataset(
-#     output_folder,
-#     composite_window="dekad",
-#     window_of_interest=["2025-01-01", "2025-08-30"],
-#     out_of_window_to_nodata=True,
-# )

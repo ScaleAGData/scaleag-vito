@@ -10,7 +10,7 @@ from prometheo.models.presto.wrapper import PretrainedPrestoWrapper, load_presto
 
 # from prometheo.models import Presto
 from prometheo.predictors import collate_fn
-from scaleagdata_vito.presto.datasets_prometheo import ScaleAgDataset
+from scaleagdata_vito.presto.datasets import ScaleAgDataset
 from scaleagdata_vito.presto.presto_df import load_dataset
 from scaleagdata_vito.presto.utils import (
     evaluate_finetuned_model,
@@ -40,16 +40,26 @@ df = load_dataset(
     composite_window=composite_window,
 )
 
-#### prepare datasets for training
+# prepare datasets for training
 df_train, df_val, df_test = train_test_val_split(
     df=df, group_sample_by="parentname", sampling_frac=0.8
 )
 
+# save dfs for reproducibility
+df_train.to_parquet(model_output_dir / "df_train.parquet", index=False)
+df_val.to_parquet(model_output_dir / "df_val.parquet", index=False)
+df_test.to_parquet(model_output_dir / "df_test.parquet", index=False)
+
+# compute and save target mean and std for unnormalizing predictions later
 target_mean = df_train[target_name].mean()
 target_std = df_train[target_name].std()
 
+with open(model_output_dir / "train_target_mean_and_std.txt", "w") as f:
+    f.write(f"target_mean: {target_mean}\n")
+    f.write(f"target_std: {target_std}\n")
+
 # initialize datasets
-num_timesteps = df.available_timesteps.max()
+num_timesteps = df_train.available_timesteps.max()
 
 train_ds = ScaleAgDataset(
     df_train,
@@ -89,7 +99,6 @@ max_epochs = 100
 unfreeze_epoch = 5
 lr = 1e-4
 freeze_layers = ["encoder"]
-
 
 regression = True
 num_outputs = 1
