@@ -1,4 +1,5 @@
 import os
+import pprint
 import random
 from pathlib import Path
 from typing import Literal, Union
@@ -10,7 +11,6 @@ import seaborn as sns
 import torch
 from loguru import logger
 from prometheo import finetune
-from prometheo.datasets.scaleag import ScaleAgDataset
 from prometheo.finetune import Hyperparams
 from prometheo.models.presto import param_groups_lrd
 from prometheo.models.presto.wrapper import (
@@ -30,11 +30,13 @@ from sklearn.metrics import (
 from torch import nn
 from torch.optim import AdamW, lr_scheduler
 from torch.utils.data import DataLoader
-import pprint
+
+from scaleagdata_vito.presto.datasets import ScaleAgDataset
 
 dir = (
     Path(os.path.dirname(os.path.realpath(__file__))).parent.parent.parent / "resources"
 )
+
 
 def predict_with_head(
     dl: DataLoader,
@@ -47,7 +49,7 @@ def predict_with_head(
         with torch.no_grad():
             preds = finetuned_model(batch)
             targets = batch.label.cpu().numpy().flatten().astype(np.float32)
-            
+
             # binary classification
             if dl.dataset.task_type == "binary":
                 preds = torch.sigmoid(preds)
@@ -62,7 +64,7 @@ def predict_with_head(
 
             all_preds.append(preds)
             all_targets.append(targets)
-            
+
     all_preds = np.concatenate(all_preds)
     all_targets = np.concatenate(all_targets)
     return all_preds, all_targets
@@ -78,7 +80,9 @@ def get_encodings(
     finetuned_model.eval()
     for batch in dl:
         with torch.no_grad():
-            s1_s2_era5_srtm, mask, dynamic_world, latlon, timestamps, h, w  = dataset_to_model(batch)
+            s1_s2_era5_srtm, mask, dynamic_world, latlon, timestamps, h, w = (
+                dataset_to_model(batch)
+            )
             encodings = finetuned_model.encoder(
                 x=to_torchtensor(s1_s2_era5_srtm, device=device).float(),
                 dynamic_world=to_torchtensor(dynamic_world, device=device).long(),
@@ -129,10 +133,29 @@ def evaluate_finetuned_model(
         targets_original_units = test_ds.revert_to_original_units(targets)
         preds_original_units = test_ds.revert_to_original_units(preds)
         metrics = {
-            "RMSE": round(float(np.sqrt(mean_squared_error(targets_original_units, preds_original_units))), 4),
-            "MSE": round(float(mean_squared_error(targets_original_units, preds_original_units)), 4),
-            "R2_score": round(float(r2_score(targets_original_units, preds_original_units)), 4),
-            "MAPE": round(float(mean_absolute_percentage_error(targets_original_units, preds_original_units)), 4),
+            "RMSE": round(
+                float(
+                    np.sqrt(
+                        mean_squared_error(targets_original_units, preds_original_units)
+                    )
+                ),
+                4,
+            ),
+            "MSE": round(
+                float(mean_squared_error(targets_original_units, preds_original_units)),
+                4,
+            ),
+            "R2_score": round(
+                float(r2_score(targets_original_units, preds_original_units)), 4
+            ),
+            "MAPE": round(
+                float(
+                    mean_absolute_percentage_error(
+                        targets_original_units, preds_original_units
+                    )
+                ),
+                4,
+            ),
         }
         pprint.pprint(metrics)
         return metrics, preds_original_units, targets_original_units
@@ -181,15 +204,15 @@ def finetune_on_task(
     lr: float = 2e-5,
 ):
 
-    composite_window = train_ds.composite_window
+    # composite_window = train_ds.composite_window
 
     if train_ds.task_type == "regression":
         regression = True
-        num_outputs = 1
+        num_outputs = train_ds.num_outputs
         loss_fn = nn.MSELoss()
     elif train_ds.task_type == "binary":
         regression = False
-        num_outputs = 1
+        num_outputs = train_ds.num_outputs
         loss_fn = nn.BCEWithLogitsLoss()
     else:
         regression = False
@@ -209,7 +232,7 @@ def finetune_on_task(
         )
         model = load_presto_weights(model, pretrained_model_path, strict=False)
     # else:
-    except Exception as e:
+    except Exception:
         model = PretrainedPrestoWrapper(
             num_outputs=num_outputs,
             regression=regression,
@@ -241,7 +264,7 @@ def finetune_on_task(
         num_workers=num_workers,
         collate_fn=collate_fn,
     )
-    
+
     logger.info(f"Finetuning the model on {train_ds.task_type} task")
     finetuned_model = finetune.run_finetuning(
         model=model,
@@ -343,13 +366,17 @@ def train_test_val_split(
                 logger.info(
                     f"All groups have at least {nmin_per_class} samples. Proceeding with the split."
                 )
-            df_sample = df[df[uniform_sample_by].isin(valid_groups)].reset_index(drop=True)
+            df_sample = df[df[uniform_sample_by].isin(valid_groups)].reset_index(
+                drop=True
+            )
+
             # Ensure deterministic sampling by sorting and using group keys as seed offsets
             def group_sample(group, frac, base_seed):
                 n = int(np.floor(len(group) * frac))
                 # Use a deterministic seed per group
                 group_seed = hash(str(group.name) + str(base_seed)) % (2**32)
                 return group.sample(n=n, random_state=group_seed)
+
             df_train = df_sample.groupby(uniform_sample_by, group_keys=False).apply(
                 lambda g: group_sample(g, sampling_frac, seed)
             )
@@ -388,6 +415,7 @@ def get_pretrained_model_url(composite_window: Literal["dekad", "month"]):
     else:
         return "https://artifactory.vgt.vito.be/artifactory/auxdata-public/scaleagdata/models/presto-ss-wc_30D.pt"
     # "https://artifactory.vgt.vito.be/artifactory/auxdata-public/worldcereal/models/PhaseII/presto-ss-wc_longparquet_random-window-cut_no-time-token_epoch96.pt"
+
 
 def get_resources_dir():
     return dir

@@ -12,10 +12,11 @@ from prometheo.models.presto.wrapper import PretrainedPrestoWrapper
 from prometheo.predictors import collate_fn
 from torch.utils.data import DataLoader
 
-from scaleagdata_vito.presto.datasets_prometheo import (
+from scaleagdata_vito.presto.datasets import (
     InferenceDataset,
     ScaleAgInferenceDataset,
 )
+
 
 class PrestoPredictor:
     def __init__(
@@ -96,7 +97,6 @@ class PrestoPredictor:
         else:
             raise ValueError("task_type must be either 'binary' or 'multiclass'")
         return preds
-
 
     def revert_to_original_units(self, target_norm, target_mean, target_std):
         return target_norm * target_std + target_mean
