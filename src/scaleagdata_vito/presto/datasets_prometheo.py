@@ -99,7 +99,7 @@ class ScaleAgDataset(Dataset):
             ], "Regression target must be of type float"
             # they need to be provided for the normalization and be based on the whole dataset distribution.
             # if set automatically, the values are based on the current batch and normalized differently across the datasets!
-            
+
             # assert (upper_bound is not None) and (
             #     lower_bound is not None
             # ), "upper_bound and lower_bound must be provided for the target normalization"
@@ -312,12 +312,12 @@ class ScaleAgDataset(Dataset):
         return labels
 
     def normalize_target(self, target):
-        logger.info("Normalizing target using provided mean and std.")
+        # logger.info("Normalizing target using provided mean and std.")
         return (target - self.target_mean) / self.target_std
         # return (target - self.lower_bound) / (self.upper_bound - self.lower_bound)
 
     def revert_to_original_units(self, target_norm):
-        logger.info("Reverting normalized target to original units.")
+        # logger.info("Reverting normalized target to original units.")
         return target_norm * self.target_std + self.target_mean
         # return target_norm * (self.upper_bound - self.lower_bound) + self.lower_bound
 
@@ -354,7 +354,7 @@ class ScaleAgDataset(Dataset):
             dtype=np.float32,
         )
         meteo = np.full(
-            (1, 1,self.num_timesteps, len(METEO_BANDS)),
+            (1, 1, self.num_timesteps, len(METEO_BANDS)),
             fill_value=NODATAVALUE,
             dtype=np.float32,
         )
