@@ -764,7 +764,7 @@ def process_data_with_window(
 
 def load_dataset(
     files_root_dir: str,
-    window_of_interest: Optional[List[str]],
+    window_of_interest: Optional[List[str]] = None,
     use_valid_time: bool = False,
     required_min_timesteps: int = 36,
     buffer_window: int = 0,
