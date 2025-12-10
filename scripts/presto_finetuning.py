@@ -41,8 +41,9 @@ df = load_dataset(
 )
 
 # prepare datasets for training
+RANDOM_SEED = 42  # for reproducibility
 df_train, df_val, df_test = train_test_val_split(
-    df=df, group_sample_by="parentname", sampling_frac=0.8
+    df=df, group_sample_by="parentname", sampling_frac=0.8, seed=RANDOM_SEED
 )
 
 # save dfs for reproducibility

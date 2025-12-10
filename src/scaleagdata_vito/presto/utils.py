@@ -332,7 +332,7 @@ def train_test_val_split(
     """
     random.seed(seed)
     if group_sample_by is not None:
-        parentnames = df[group_sample_by].unique()
+        parentnames = sorted(df[group_sample_by].unique())
         parentname_train = random.sample(
             list(parentnames), int(len(parentnames) * sampling_frac)
         )
@@ -341,7 +341,7 @@ def train_test_val_split(
 
         # split in val and test
         df_val_test = df_sample[~df_sample[group_sample_by].isin(parentname_train)]
-        parentname_val_test = df_val_test[group_sample_by].unique()
+        parentname_val_test = sorted(df_val_test[group_sample_by].unique())
         parentname_val = random.sample(
             list(parentname_val_test), int(len(parentname_val_test) * 0.5)
         )
