@@ -48,8 +48,6 @@ class ScaleAgDataset(Dataset):
         positive_labels: Optional[Union[List[Any], Any]] = None,
         composite_window: Literal["dekad", "month"] = "dekad",
         time_explicit: bool = False,
-        # upper_bound: Optional[float] = None,
-        # lower_bound: Optional[float] = None,
         target_mean: Optional[float] = None,
         target_std: Optional[float] = None,
     ):
@@ -275,28 +273,27 @@ class ScaleAgDataset(Dataset):
         valid_idx = valid_positions or np.arange(time_dim)
 
         labels = np.full(
-            (1, 1, time_dim, self.num_outputs),
+            (1, 1, time_dim, 1),
             fill_value=NODATAVALUE,
-            dtype=np.float32,  ####
+            dtype=np.float32 if self.task_type == "regression" else np.int32,
         )
+
         if self.task_type == "regression":
             target = self.normalize_target(target)
             # target = np.log1p(target)
 
         elif self.task_type == "binary":
             if self.positive_labels is not None:
-                target = self.binary_mapping[target]
+                target = int(self.binary_mapping[target])  # .astype(np.float32)
             assert target in [
                 0,
                 1,
             ], f"Invalid target value: {target}. Target must be either 0 or 1. Please provide pos_labels list."
 
-        # convert classes to indices for multiclass
         elif self.task_type == "multiclass":
-            target = self.class_to_index[target]
-            if target.size > 1:
-                target = target.to_numpy()
-        labels[0, 0, valid_idx, :] = target
+            # convert classes to indices for multiclass
+            target = int(self.class_to_index[target])  # .astype(np.float32)
+        labels[0, 0, valid_idx, 0] = target
         return labels
 
     def normalize_target(self, target):
