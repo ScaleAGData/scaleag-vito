@@ -56,7 +56,7 @@ def predict_with_head(
                 targets = targets.astype(int)
             # multiclass classification
             elif dl.dataset.task_type == "multiclass":
-                preds = torch.softmax(preds, dim=-1)
+                preds = preds.argmax(dim=-1)
                 targets = targets.astype(int)
 
             # Flatten predictions and targets

@@ -1,11 +1,13 @@
+from collections import Counter
 from pathlib import Path
-from typing import Any, List, Literal, Optional, Tuple, Union
+from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 
 import numpy as np
 import pandas as pd
 import rasterio as rio
 import xarray as xr
 from einops import rearrange
+from loguru import logger
 from prometheo.predictors import (
     DEM_BANDS,
     METEO_BANDS,
@@ -15,7 +17,7 @@ from prometheo.predictors import (
     Predictors,
 )
 from pyproj import CRS, Transformer
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, WeightedRandomSampler
 
 
 class ScaleAgDataset(Dataset):
@@ -346,6 +348,46 @@ class ScaleAgDataset(Dataset):
         dem = np.full((1, 1, len(DEM_BANDS)), fill_value=NODATAVALUE, dtype=np.float32)
         return s1, s2, meteo, dem
 
+    def get_balanced_sampler(
+        self,
+        method: str = "balanced",
+        clip_range: Optional[tuple] = None,  # e.g. (0.2, 10.0)
+        normalize: bool = True,
+        generator: Optional[Any] = None,
+    ) -> "WeightedRandomSampler":
+        """
+        Build a WeightedRandomSampler so that rare classes (from `balancing_class`)
+        are upsampled and common classes downsampled.
+        max_upsample:
+            maximum upsampling factor for the rarest class (e.g. 10 means
+            no class will be sampled >10× more than its frequency).
+        sampling_class:
+            column name in the dataframe to use for balancing.
+            Default is `finetune_class`, which is the class label
+            used in the training. `balancing_class` can be used as well.
+        """
+        # extract the sampling class (strings or ints)
+        bc_vals = self.dataframe[self.target_name].values
+
+        logger.info("Computing class weights ...")
+        class_weights = get_class_weights(
+            bc_vals, method, clip_range=clip_range, normalize=normalize
+        )
+        logger.info(f"Class weights: {class_weights}")
+
+        # per‐sample weight
+        sample_weights = np.ones_like(bc_vals).astype(np.float32)
+        for k, v in class_weights.items():
+            sample_weights[bc_vals == k] = v
+
+        sampler = WeightedRandomSampler(
+            weights=sample_weights,
+            num_samples=len(sample_weights),
+            replacement=True,
+            generator=generator,
+        )
+        return sampler
+
 
 class ScaleAgInferenceDataset(Dataset):
     BAND_MAPPING = {
@@ -590,3 +632,48 @@ class InferenceDataset(Dataset):
 
     def __len__(self):
         return len(self.data)
+
+
+def get_class_weights(
+    labels: np.ndarray[Any, Any],
+    method: str = "balanced",  # 'balanced', 'log', or 'none'
+    clip_range: Optional[tuple] = None,  # e.g. (0.2, 10.0)
+    normalize: bool = True,
+) -> Dict[int, float]:
+    """
+    Compute class weights for classification tasks.
+
+    Args:
+        labels: list of integer class labels.
+        method: 'balanced' (scikit-learn style), or 'log' (log-scaled), or 'none'.
+        clip_range: tuple (min, max) to clip weights.
+        normalize: whether to rescale weights to mean = 1.
+
+    Returns:
+        class_weights_dict: dict mapping class index → weight
+    """
+    counts = Counter(labels)
+    classes = sorted(counts.keys())
+    total_samples = sum(counts.values())
+    num_classes = len(classes)
+    freq = np.array([counts[c] for c in classes], dtype=np.float32)
+
+    if method == "balanced":
+        weights = total_samples / (num_classes * freq)
+    elif method == "log":
+        inv_freq = 1.0 / freq
+        weights = np.log1p(inv_freq / np.mean(inv_freq))
+    elif method == "none":
+        weights = np.ones_like(freq)
+    else:
+        raise ValueError(f"Unknown method: {method}")
+
+    if clip_range:
+        logger.info(f"Clipping weights to range {clip_range}")
+        weights = np.clip(weights, clip_range[0], clip_range[1])
+
+    if normalize:
+        logger.info("Renormalizing weights to mean = 1")
+        weights = weights / weights.mean()
+
+    return dict(zip(classes, weights))
