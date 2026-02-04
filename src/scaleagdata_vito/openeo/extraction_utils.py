@@ -39,7 +39,6 @@ PLOT_BAND_MAPPING = {
 
 NODATAVALUE = 65535
 
-
 def _apply_band_scaling(array: np.array, bandname: str) -> np.array:
     """Apply scaling to the band values based on the band name.
     Parameters
@@ -138,7 +137,7 @@ def get_band_statistics(
 def load_point_extractions(
     extractions_dir: Path,
     subset=False,
-) -> gpd.GeoDataFrame:
+) -> pd.DataFrame:
     """Load point extractions from the given folder.
 
     Parameters
@@ -167,16 +166,16 @@ def load_point_extractions(
 
     if subset:
         # only load first file
-        gdf = gpd.read_parquet(infiles[0])
+        df_ = pd.read_parquet(infiles[0])
     else:
         # load all files
         dfs = []
         for f in infiles:
-            gdf = gpd.read_parquet(f)
-            dfs.append(gdf)
-        gdf = pd.concat(dfs, ignore_index=True).reset_index(drop=True)
+            df_ = pd.read_parquet(f)
+            dfs.append(df_)
+        df = pd.concat(dfs, ignore_index=True).reset_index(drop=True)
 
-    return gdf
+    return df
 
 
 def check_job_status(output_folder: Path) -> dict:
@@ -308,7 +307,7 @@ def compute_ndvi(gdf):
     b4 = _apply_band_scaling(gdf["S2-L2A-B04"].values, "S2-L2A-B04")
     b8 = _apply_band_scaling(gdf["S2-L2A-B08"].values, "S2-L2A-B08")
     ndvi = (b8 - b4) / (b8 + b4)
-    return np.nan_to_num(ndvi, nan=0)
+    return ndvi #np.nan_to_num(ndvi, nan=0)
 
 
 def visualize_timeseries(gdf: gpd.GeoDataFrame, sample_id: str) -> None:

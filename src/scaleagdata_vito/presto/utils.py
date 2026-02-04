@@ -89,7 +89,7 @@ def get_encodings(
                 latlons=to_torchtensor(latlon, device=device).float(),
                 mask=to_torchtensor(mask, device=device).long(),
                 # presto wants 0 indexed months, not 1 indexed months
-                month=to_torchtensor(timestamps, device=device),
+                month=to_torchtensor(timestamps[:, :, 1] - 1, device=device),
                 eval_pooling=eval_pooling,
             )
             all_encodings.append(encodings.numpy())
@@ -202,6 +202,8 @@ def finetune_on_task(
     patience: int = 3,
     num_workers: int = 2,
     lr: float = 2e-5,
+    freeze_layers: Literal["", "encoder", "all"] = "encoder",
+    unfreeze_epoch: int = 10,
 ):
 
     # composite_window = train_ds.composite_window
@@ -277,6 +279,8 @@ def finetune_on_task(
         scheduler=scheduler,
         hyperparams=hyperparams,
         setup_logging=False,  # Already setup logging
+        freeze_layers=freeze_layers,
+        unfreeze_epoch=unfreeze_epoch,
     )
     return finetuned_model
 
