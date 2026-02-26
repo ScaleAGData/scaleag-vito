@@ -1,5 +1,4 @@
 import os
-import pprint
 import random
 from pathlib import Path
 from typing import Literal, Union
@@ -121,12 +120,10 @@ def evaluate_finetuned_model(
     if test_ds.task_type == "binary":
         preds = preds > 0.5
         metrics = classification_report(targets, preds, output_dict=True)
-        pprint.pprint(metrics)
     elif test_ds.task_type == "multiclass":
         preds = [test_ds.index_to_class[int(t)] for t in preds]
         targets = [test_ds.index_to_class[int(t)] for t in targets]
         metrics = classification_report(targets, preds, output_dict=True)
-        pprint.pprint(metrics)
     else:
         # targets_original_units = np.expm1(targets)
         # preds_original_units = np.expm1(preds)
@@ -157,7 +154,6 @@ def evaluate_finetuned_model(
                 4,
             ),
         }
-        pprint.pprint(metrics)
         return metrics, preds_original_units, targets_original_units
     return metrics, preds, targets
 
