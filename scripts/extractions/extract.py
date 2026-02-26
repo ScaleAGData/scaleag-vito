@@ -95,17 +95,17 @@ if __name__ == "__main__":
     import pandas as pd
 
     input_filename = Path(
-                "/vitodata/scaleagdata/data/pixels_fields_netherlands_2024_harvest_2024/pixels_fields_netherlands_2024_harvest.geojson"
+                "/vitodata/worldcereal/data/GEOMaize/input_data_buffered/polygons/Maize_2023_5mbuffered.geojson"
             )
     args = pd.Series(
         dict(
             collection=ExtractionCollection.SAMPLE_SCALEAG,
-            output_folder=Path(f"/vitodata/scaleagdata/extractions/04112025/ref_id={input_filename.stem}/"),
+            output_folder=Path(f"/vitodata/worldcereal/data/GEOMaize/extractions_04022026/polygons/month/ref_id={input_filename.stem}/"),
             input_df=input_filename,
-            start_date="2024-03-01",
-            end_date="2025-02-28",
-            unique_id_column="fieldname",
-            composite_window="dekad",
+            start_date="2023-01-01",
+            end_date="2023-12-31",
+            unique_id_column="Field_ID",
+            composite_window="month",
             max_locations=250,
             memory="1800m",
             executor_memory="3G",

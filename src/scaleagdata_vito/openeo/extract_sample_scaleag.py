@@ -24,7 +24,7 @@ from openeo_gfmap import (
     TemporalContext,
 )
 from openeo_gfmap.backend import cdse_connection
-from openeo_gfmap.manager.job_manager import GFMAPJobManager
+from scaleagdata_vito.openeo.job_manager import ExtractionJobManager
 from openeo_gfmap.manager.job_splitters import split_job_s2grid
 from tqdm import tqdm
 
@@ -411,7 +411,7 @@ def setup_extraction_functions(
 
 
 def manager_main_loop(
-    manager: GFMAPJobManager,
+    manager: ExtractionJobManager,
     collection: ExtractionCollection,
     job_df: gpd.GeoDataFrame,
     datacube_fn: Callable,
@@ -507,14 +507,11 @@ def extract(args):
     # Initialize and setups the job manager
     pipeline_log.info("Initializing the job manager.")
 
-    job_manager = GFMAPJobManager(
-        output_dir=args.output_folder,
+    job_manager = ExtractionJobManager(
+        root_dir=args.output_folder,
         output_path_generator=path_fn,
         post_job_action=post_job_fn,
         poll_sleep=60,
-        n_threads=4,
-        restart_failed=args.restart_failed,
-        stac_enabled=False,
     )
 
     job_manager.add_backend(
