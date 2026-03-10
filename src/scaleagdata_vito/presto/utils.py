@@ -118,7 +118,7 @@ def evaluate_finetuned_model(
     # predict with Presto head and evaluate depending on the task
     preds, targets = predict_with_head(test_dl, finetuned_model)
     if test_ds.task_type == "binary":
-        preds = preds > 0.5
+        preds = (preds > 0.5).astype(int)
         metrics = classification_report(targets, preds, output_dict=True)
     elif test_ds.task_type == "multiclass":
         preds = [test_ds.index_to_class[int(t)] for t in preds]
