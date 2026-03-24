@@ -4,6 +4,8 @@ from typing import Literal, Union
 import matplotlib.gridspec as gridspec
 import matplotlib.pyplot as plt
 import numpy as np
+import rasterio
+from rasterio.transform import from_bounds
 import torch
 import xarray as xr
 from einops import rearrange
@@ -102,7 +104,7 @@ class PrestoPredictor:
         return target_norm * target_std + target_mean
 
 
-def reshape_result(result: np.ndarray, path_to_input_file: Path):
+def reshape_result(result: np.ndarray, path_to_input_file: Path, out_path = None, epsg_code_utm=None):
     input_arr = xr.load_dataset(path_to_input_file)
     x_coords = input_arr.x.values
     y_coords = input_arr.y.values
@@ -115,6 +117,34 @@ def reshape_result(result: np.ndarray, path_to_input_file: Path):
         reshaped_result = rearrange(
             result, "(y x) -> y x", y=len(y_coords), x=len(x_coords)
         )
+
+    if out_path is not None:
+        # Get bounds
+        west = x_coords.min()
+        east = x_coords.max()
+        south = y_coords.min()
+        north = y_coords.max()
+
+        # Create geotransform
+        transform = from_bounds(west, south, east, north, reshaped_result.shape[1], reshaped_result.shape[0])
+
+        # Save as GeoTIFF
+        output_path = out_path / "predictions_map.tif"
+
+        if epsg_code_utm is None:
+            raise ValueError("epsg_code_utm must be provided to save the predictions map as GeoTIFF")
+        with rasterio.open(
+            output_path,
+            'w',
+            driver='GTiff',
+            height=reshaped_result.shape[0],
+            width=reshaped_result.shape[1],
+            count=1,
+            dtype=reshaped_result.dtype,
+            crs=f'EPSG:{epsg_code_utm}',
+            transform=transform,
+        ) as dst:
+            dst.write(reshaped_result, 1)
     return reshaped_result
 
 
@@ -124,15 +154,11 @@ def min_max_normalize(image):
     return (image - image.min()) / (image.max() - image.min())
 
 
-def plot_results(path_to_input_file, task, prob_map=None, pred_map=None, ts_index=0):
+def plot_results(path_to_input_file, task, prob_map=None, pred_map=None, bin_th=0.5, ts_index=0):
     rgb = xr.load_dataset(path_to_input_file)
     bands = ["S2-L2A-B04", "S2-L2A-B03", "S2-L2A-B02"]
     rgb = np.stack([rgb[band].values for band in bands], axis=-1)
     if task == "binary":
-        if prob_map is None or pred_map is None:
-            raise ValueError(
-                "prob_map and pred_map must be provided for binary classification"
-            )
         fig = plt.figure(figsize=(15, 5))
         gs = gridspec.GridSpec(1, 4, width_ratios=[1, 1, 1, 0.05], wspace=0.1)
 
@@ -142,11 +168,10 @@ def plot_results(path_to_input_file, task, prob_map=None, pred_map=None, ts_inde
         axs[0].imshow(min_max_normalize(rgb[ts_index]))
         axs[0].set_title("RGB")
         axs[0].axis("off")
-        if task == "binary":
-            axs[1].imshow(pred_map, cmap="gray")
-        else:
-            axs[1].imshow(pred_map, cmap="nipy_spectral")
-        axs[1].set_title("Prediction Map")
+
+        pred_map = prob_map > bin_th
+        axs[1].imshow(pred_map, cmap="gray")
+        axs[1].set_title(f"Prediction Map > {bin_th}")
         axs[1].axis("off")
 
         im = axs[2].imshow(prob_map, cmap="magma", vmin=0, vmax=1)
