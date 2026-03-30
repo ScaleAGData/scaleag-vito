@@ -210,6 +210,8 @@ def create_job_sample_scaleag(
     executor_memory: str = "5G",
     python_memory: str = "2G",
     max_executors: int = 22,
+    output_format: str = "Parquet",
+    fetch_type: FetchType = FetchType.POINT,
 ):
     """Creates an OpenEO BatchJob from the given row information."""
 
@@ -238,6 +240,7 @@ def create_job_sample_scaleag(
         temporal_extent=temporal_extent,
         composite_window=row.composite_window,
         s2_tile=s2_tile,
+        fetch_type=fetch_type,
     )
 
     # Finally, create a vector cube based on the Point geometries
@@ -260,7 +263,7 @@ def create_job_sample_scaleag(
     }
 
     return cube.create_job(
-        out_format="Parquet",
+        out_format=output_format,
         title=f"ScaleAgData_Geometry_Extraction_{row.s2_tile}",
         job_options=job_options,
     )
@@ -357,6 +360,8 @@ def setup_extraction_functions(
     memory: str,
     python_memory: str,
     max_executors: int,
+    output_format: str,
+    fetch_type: FetchType,
 ) -> tuple[Callable, Callable, Callable]:
     """Setup the datacube creation, path generation and post-job action
     functions for the given collection. Returns a tuple of three functions:
@@ -371,6 +376,8 @@ def setup_extraction_functions(
             executor_memory=memory,
             python_memory=python_memory,
             max_executors=max_executors,
+            output_format=output_format,
+            fetch_type=fetch_type,
         ),
     }
 
@@ -502,6 +509,8 @@ def extract(args):
         args.memory,
         args.python_memory,
         args.max_executors,
+        args.output_format,
+        args.fetch_type,
     )
 
     # Initialize and setups the job manager
@@ -547,6 +556,7 @@ def generate_input_for_extractions(input_dict):
             "parallel_jobs": 10,
             "soft-errors": 0.1,
             "restart_failed": True,
+            "output_format": input_dict.get("output_format", "NetCDF"),
             "unique_id_column": input_dict["unique_id_column"],
             "composite_window": input_dict["composite_window"],
         }
@@ -628,7 +638,7 @@ def collect_inputs_for_inference(
     outputfile = Path(output_path) / f"{output_filename}"
     inputs.execute_batch(
         outputfile=outputfile,
-        out_format="NetCDF",
+        out_format="netCDF",
         title="ScaleAgData collect inference inputs",
         description="Job that collects inputs for ScaleAg inference",
         job_options=job_options,
