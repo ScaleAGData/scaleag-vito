@@ -46,10 +46,11 @@ class PrestoPredictor:
         target_mean: Union[float, None] = None,
         target_std: Union[float, None] = None,
         mask_path: Union[str, Path, None] = None,
+        coords: Union[None, tuple] = None,
     ) -> np.ndarray:
         cl = ScaleAgInferenceDataset(composite_window=self.composite_window)
         s1_cube, s2_cube, meteo_cube, dem_cube, latlon_cube, timestamps_cube = (
-            cl.nc_to_array(path_to_file, mask_path=mask_path)
+            cl.nc_to_array(path_to_file, mask_path=mask_path, coords=coords)
         )
         ds = InferenceDataset(
             s1_cube, s2_cube, meteo_cube, dem_cube, latlon_cube, timestamps_cube
@@ -104,8 +105,11 @@ class PrestoPredictor:
         return target_norm * target_std + target_mean
 
 
-def reshape_result(result: np.ndarray, path_to_input_file: Path, out_path = None, epsg_code_utm=None):
+def reshape_result(result: np.ndarray, path_to_input_file: Path, out_path = None, epsg_code_utm=None, coords: Union[None, tuple] = None):
     input_arr = xr.load_dataset(path_to_input_file)
+    if coords is not None:
+        input_arr = input_arr.isel(x=slice(coords[0], coords[2]), y=slice(coords[1], coords[3]))
+
     x_coords = input_arr.x.values
     y_coords = input_arr.y.values
     if result.shape[0] != len(x_coords) * len(y_coords):
@@ -129,7 +133,8 @@ def reshape_result(result: np.ndarray, path_to_input_file: Path, out_path = None
         transform = from_bounds(west, south, east, north, reshaped_result.shape[1], reshaped_result.shape[0])
 
         # Save as GeoTIFF
-        output_path = out_path / "predictions_map.tif"
+        coords_str = f"_x{coords[0]}-{coords[2]}_y{coords[1]}-{coords[3]}" if coords is not None else ""
+        output_path = out_path / f"{path_to_input_file.stem}_{coords_str}_map.tif"
 
         if epsg_code_utm is None:
             raise ValueError("epsg_code_utm must be provided to save the predictions map as GeoTIFF")
@@ -154,8 +159,10 @@ def min_max_normalize(image):
     return (image - image.min()) / (image.max() - image.min())
 
 
-def plot_results(path_to_input_file, task, prob_map=None, pred_map=None, bin_th=0.5, ts_index=0):
+def plot_results(path_to_input_file, task, prob_map=None, pred_map=None, bin_th=0.5, ts_index=0, coords: Union[None, tuple] = None):
     rgb = xr.load_dataset(path_to_input_file)
+    if coords is not None:
+        rgb = rgb.isel(x=slice(coords[0], coords[2]), y=slice(coords[1], coords[3]))
     bands = ["S2-L2A-B04", "S2-L2A-B03", "S2-L2A-B02"]
     rgb = np.stack([rgb[band].values for band in bands], axis=-1)
     if task == "binary":

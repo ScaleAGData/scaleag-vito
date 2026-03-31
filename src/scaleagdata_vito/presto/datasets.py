@@ -416,9 +416,11 @@ class ScaleAgInferenceDataset(Dataset):
         return len(self.all_files)
 
     def nc_to_array(
-        self, filepath: Path, mask_path: Union[str, Path, None] = None
+        self, filepath: Path, mask_path: Union[str, Path, None] = None, coords: Union[None, tuple] = None
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         inarr = xr.open_dataset(filepath)
+        if coords is not None:
+            inarr = inarr.isel(x=slice(coords[0], coords[2]), y=slice(coords[1], coords[3]))
         epsg = CRS.from_wkt(inarr.crs.attrs["crs_wkt"]).to_epsg()
         inarr = inarr.to_array(dim="bands").drop_sel(bands="crs")
         return self._get_predictors(inarr, epsg, mask_path)
