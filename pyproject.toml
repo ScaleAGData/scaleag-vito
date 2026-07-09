@@ -94,7 +94,7 @@ addopts = [
 
 [tool.ruff]
 exclude = ["**/*.ipynb"]
-lint.extend-select = ["E", "F", "I"]
+lint.extend-select = ["E", "F"]
 lint.ignore = [
   "E501"
 ]

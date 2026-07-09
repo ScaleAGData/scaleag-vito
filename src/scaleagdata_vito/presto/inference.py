@@ -14,10 +14,7 @@ from prometheo.predictors import collate_fn
 from rasterio.transform import from_bounds
 from torch.utils.data import DataLoader
 
-from scaleagdata_vito.presto.datasets import (
-    InferenceDataset,
-    ScaleAgInferenceDataset,
-)
+from scaleagdata_vito.presto.datasets import InferenceDataset, ScaleAgInferenceDataset
 
 
 class PrestoPredictor:
