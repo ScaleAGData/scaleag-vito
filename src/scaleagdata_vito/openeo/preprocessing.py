@@ -266,7 +266,7 @@ def precomposited_datacube_METEO(
     elif period == "month":
         # Monthly composited METEO data
         cube = connection.load_stac(
-            "https://stac.openeo.vito.be/collections/agera5_monthly",
+            "https://stac.openeo.vito.be/collections/agera5_monthly_composite",
             temporal_extent=temporal_extent,
             bands=["precipitation-flux", "temperature-mean"],
         )

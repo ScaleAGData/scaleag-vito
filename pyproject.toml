@@ -30,32 +30,30 @@ authors = [
 ]
 description = "using Presto for few-shot learning downstream tasks"
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.11"
 dynamic = ["version"]
-# version = "2.0.2"
 classifiers = [
     "Programming Language :: Python :: 3",
     "Operating System :: OS Independent",
 ]
 dependencies = [
-    "catboost==1.2.5",
     "cftime",
-    "geojson",  
-    "geopandas",  
-    "rioxarray>=0.13.0",
-    "loguru>=0.7.2",
     "geojson",
-    "numpy<2.0.0",
-    "netcdf4<=1.6.4",
-    "h5netcdf>=1.1.0",
-    "openeo>=0.31.0",
-    "openeo-gfmap==0.4.4",
-    "prometheo @ git+https://github.com/WorldCereal/prometheo.git",
-    "pytest-depends",
-    "pyarrow",
     "geopandas",
-    "scipy",
+    "h3~=4.1.0",
+    "h5netcdf>=1.3.0",
+    "loguru>=0.7.2",
+    "netcdf4>=1.6.4",
+    "numpy>=2.4.0",
+    "openeo>=0.47.0",
+    "openeo-gfmap @ git+https://github.com/Open-EO/openeo-gfmap.git@maintenance/0.4.x",
+    "prometheo @ git+https://github.com/WorldCereal/prometheo.git@v0.0.4",
+    "pyarrow",
+    "pytest-depends",
+    "rioxarray>=0.13.0",
     "scikit-image",
+    "scipy",
+    "tabulate>=0.9.0",
     "xarray>=2022.3.0",
   ]
 
@@ -66,20 +64,24 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
   "pytest>=7.4.0",
+  "pytest-depends", 
   "matplotlib>=3.3.0",
-  "wandb"
-]
-train = [ 
-  "catboost==1.2.5",
-  "scikit-learn==1.5.0",
-  "torch>=2.3.1,<3.0.0",
-  "pystac==1.10.1",
-  "pystac-client==0.8.3"
 ]
 
 notebooks = [
-  "ipywidgets==8.1.3",
+  "ipywidgets~=8.1.3",
+  "ipyleaflet>=0.19.0",
   "leafmap==0.35.1"
+]
+
+train = [
+  "catboost~=1.2.8",
+  "matplotlib>=3.3.0",
+  "scikit-learn",
+  "torch>=2.3.0",
+  "pystac==1.10.1",
+  "pystac-client==0.8.3",
+  "seaborn"
 ]
 
 [tool.pytest.ini_options]
@@ -90,15 +92,15 @@ addopts = [
   "--import-mode=prepend",
 ]
 
+[tool.ruff]
+exclude = ["**/*.ipynb"]
+lint.extend-select = ["E", "F"]
+lint.ignore = [
+  "E501"
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["scaleagdata_vito"]
+
 [tool.isort]
 profile = "black"
-
-
-[tool.ruff]
-# line-length = 88
-
-[tool.ruff.lint]
-select = ["E", "F"]
-ignore = [
-  "E501",  # Ignore "line-too-long" issues, let black handle that.
-]

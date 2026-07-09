@@ -32,8 +32,8 @@ PLOT_BAND_MAPPING = {
     "S1-SIGMA0-VH": "VH",
     "slope": "slope",
     "elevation": "elevation",
-    "AGERA5-PRECIP": "avg temperature",
-    "AGERA5-TMEAN": "precipitation (mm3)",
+    "AGERA5-PRECIP": "precipitation (mm3)",
+    "AGERA5-TMEAN": "avg temperature",
     "NDVI": "NDVI",
 }
 
@@ -138,7 +138,7 @@ def get_band_statistics(
 def load_point_extractions(
     extractions_dir: Path,
     subset=False,
-) -> gpd.GeoDataFrame:
+) -> pd.DataFrame:
     """Load point extractions from the given folder.
 
     Parameters
@@ -157,7 +157,7 @@ def load_point_extractions(
     """
 
     # Look for all extractions in the given folder
-    infiles = list(Path(extractions_dir).glob("**/*.geoparquet"))
+    infiles = list(Path(extractions_dir).glob("**/*parquet"))
     # Get rid of merged geoparquet
     infiles = [f for f in infiles if not Path(f).is_dir()]
 
@@ -167,12 +167,16 @@ def load_point_extractions(
 
     if subset:
         # only load first file
-        gdf = gpd.read_parquet(infiles[0])
+        df_ = pd.read_parquet(infiles[0])
     else:
         # load all files
-        gdf = gpd.read_parquet(infiles)
+        dfs = []
+        for f in infiles:
+            df_ = pd.read_parquet(f)
+            dfs.append(df_)
+        df = pd.concat(dfs, ignore_index=True).reset_index(drop=True)
 
-    return gdf
+    return df
 
 
 def check_job_status(output_folder: Path) -> dict:
@@ -281,12 +285,17 @@ def _read_job_tracking_csv(output_folder: Path) -> pd.DataFrame:
     FileNotFoundError
         if the job status file is not found in the designated folder
     """
-    job_status_file = output_folder / "job_tracking.csv"
-    if job_status_file.exists():
-        job_status_df = pd.read_csv(job_status_file)
-    else:
-        raise FileNotFoundError(f"Job status file not found at {job_status_file}")
-    return job_status_df
+    job_status_files = list(Path(output_folder).glob("job_tracking*"))
+    job_status_dfs = pd.DataFrame()
+    for file in job_status_files:
+        if file.exists():
+            job_status_df = pd.read_csv(file)
+            job_status_dfs = pd.concat(
+                [job_status_dfs, job_status_df], ignore_index=True
+            )
+        else:
+            raise FileNotFoundError(f"Job status file not found at {file}")
+    return job_status_dfs
 
 
 def _count_by_status(job_status_df, statuses: Iterable[str] = ()) -> dict:
@@ -301,13 +310,11 @@ def compute_ndvi(gdf):
     b4 = _apply_band_scaling(gdf["S2-L2A-B04"].values, "S2-L2A-B04")
     b8 = _apply_band_scaling(gdf["S2-L2A-B08"].values, "S2-L2A-B08")
     ndvi = (b8 - b4) / (b8 + b4)
-    return np.nan_to_num(ndvi, nan=0)
+    return ndvi  # np.nan_to_num(ndvi, nan=0)
 
 
 def visualize_timeseries(gdf: gpd.GeoDataFrame, sample_id: str) -> None:
-    sample_data = (
-        gdf[gdf["sample_id"] == sample_id].replace(65535, 0).sort_values(by="timestamp")
-    )
+    sample_data = gdf[gdf["sample_id"] == sample_id].sort_values(by="timestamp")  #
     # checked order in code
 
     months = sample_data["timestamp"].dt.month
@@ -338,14 +345,24 @@ def visualize_timeseries(gdf: gpd.GeoDataFrame, sample_id: str) -> None:
             data = _apply_band_scaling(sample_data[band].values, band)
         else:
             data = compute_ndvi(sample_data)
+
+        valid_idx = data != NODATAVALUE
         sns.lineplot(
-            x=np.arange(len(months)),
-            y=data,
+            x=np.arange(len(months))[valid_idx],
+            y=data[valid_idx],
             ax=axes[i],
             alpha=0.5,
             linewidth=3,
             color="blue",
         )  # Overlay actual data
+        # Scatter plot only for non-nan data
+        axes[i].scatter(
+            np.arange(len(months))[valid_idx],
+            data[valid_idx],
+            color="red",
+            s=30,
+            label="Valid data",
+        )
         axes[i].set_title(plot_band)
         axes[i].set_xticks(np.arange(len(months)))
         axes[i].set_xticklabels(x_ticks, rotation=90)

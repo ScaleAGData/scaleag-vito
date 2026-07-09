@@ -15,6 +15,7 @@ import openeo
 import pandas as pd
 import pystac
 import requests
+import xarray as xr
 from openeo.rest import OpenEoApiError, OpenEoApiPlainError, OpenEoRestError
 from openeo_gfmap import (
     Backend,
@@ -24,10 +25,10 @@ from openeo_gfmap import (
     TemporalContext,
 )
 from openeo_gfmap.backend import cdse_connection
-from openeo_gfmap.manager.job_manager import GFMAPJobManager
 from openeo_gfmap.manager.job_splitters import split_job_s2grid
 from tqdm import tqdm
 
+from scaleagdata_vito.openeo.job_manager import ExtractionJobManager
 from scaleagdata_vito.openeo.preprocessing import scaleag_preprocessed_inputs
 
 # Logger used for the pipeline
@@ -149,7 +150,9 @@ def create_job_dataframe_sample_scaleag(
         job["lat"] = job.geometry.centroid.y
         job["lon"] = job.geometry.centroid.x
 
-        if "date" in job.columns:
+        if "date" in job.columns and (
+            start_date_user is not None or end_date_user is not None
+        ):
             job.rename(columns={"date": "original_date"}, inplace=True)
             job["original_date"] = pd.to_datetime(job["original_date"])
 
@@ -168,6 +171,7 @@ def create_job_dataframe_sample_scaleag(
                     "Start and end dates are required when no date column is present."
                 )
             else:
+                logging.info("Using user-defined start and end dates.")
                 start_date = datetime.strptime(start_date_user, "%Y-%m-%d")
                 end_date = datetime.strptime(end_date_user, "%Y-%m-%d")
 
@@ -207,6 +211,9 @@ def create_job_sample_scaleag(
     executor_memory: str = "5G",
     python_memory: str = "2G",
     max_executors: int = 22,
+    output_format: str = "Parquet",
+    fetch_type: FetchType = FetchType.POINT,
+    epsg: int = 4326,
 ):
     """Creates an OpenEO BatchJob from the given row information."""
 
@@ -235,10 +242,25 @@ def create_job_sample_scaleag(
         temporal_extent=temporal_extent,
         composite_window=row.composite_window,
         s2_tile=s2_tile,
+        fetch_type=fetch_type,
     )
 
-    # Finally, create a vector cube based on the Point geometries
-    cube = inputs.aggregate_spatial(geometries=geometry, reducer="mean")
+    if fetch_type == FetchType.POINT:
+        # Finally, create a vector cube based on the Point geometries
+        cube = inputs.aggregate_spatial(geometries=geometry, reducer="mean")
+    else:
+        features_gdf = gpd.GeoDataFrame.from_features(
+            geometry.features
+        )  # .to_crs(epsg=epsg)
+        minx, miny, maxx, maxy = features_gdf.total_bounds
+        spatial_context = BoundingBoxExtent(
+            west=float(minx),
+            south=float(miny),
+            east=float(maxx),
+            north=float(maxy),
+            # epsg=epsg
+        )
+        cube = inputs.filter_bbox(dict(spatial_context))
 
     # Increase the memory of the jobs depending on the number of polygons to extract
     number_points = get_job_nb_polygons(row)
@@ -253,11 +275,11 @@ def create_job_sample_scaleag(
         "python-memory": python_memory,
         "executor-cores": "1",
         "max-executors": max_executors,
-        "soft-errors": "true",
+        "soft-errors": 0.1,
     }
 
     return cube.create_job(
-        out_format="Parquet",
+        out_format=output_format,
         title=f"ScaleAgData_Geometry_Extraction_{row.s2_tile}",
         job_options=job_options,
     )
@@ -271,35 +293,67 @@ def post_job_action_sample_scaleag(
     for idx, item in enumerate(job_items):
         item_asset_path = Path(list(item.assets.values())[0].href)
 
-        gdf = gpd.read_parquet(item_asset_path)
+        if item_asset_path.suffix == ".nc":
+            # Post-processing for NetCDF files
+            ds = xr.open_dataset(item_asset_path)
 
-        # Convert the dates to datetime format
-        gdf["timestamp"] = pd.to_datetime(gdf["date"])
-        gdf.drop(columns=["date"], inplace=True)
+            # Convert the dates to datetime format
+            if "date" in ds.data_vars:
+                ds["timestamp"] = pd.to_datetime(ds["date"])
+                ds = ds.drop_vars(["date"])
 
-        # Convert band dtype to uint16 (temporary fix)
-        # TODO: remove this step when the issue is fixed on the OpenEO backend
-        bands = [
-            "S2-L2A-B02",
-            "S2-L2A-B03",
-            "S2-L2A-B04",
-            "S2-L2A-B05",
-            "S2-L2A-B06",
-            "S2-L2A-B07",
-            "S2-L2A-B08",
-            "S2-L2A-B8A",
-            "S2-L2A-B11",
-            "S2-L2A-B12",
-            "S1-SIGMA0-VH",
-            "S1-SIGMA0-VV",
-            "elevation",
-            "slope",
-            "AGERA5-PRECIP",
-            "AGERA5-TMEAN",
-        ]
-        gdf[bands] = gdf[bands].fillna(65535).astype("uint16")
+            # Convert band dtype to uint16 (temporary fix)
+            bands = [
+                "S2-L2A-B02",
+                "S2-L2A-B03",
+                "S2-L2A-B04",
+                "S2-L2A-B05",
+                "S2-L2A-B06",
+                "S2-L2A-B07",
+                "S2-L2A-B08",
+                "S2-L2A-B8A",
+                "S2-L2A-B11",
+                "S2-L2A-B12",
+                "S1-SIGMA0-VH",
+                "S1-SIGMA0-VV",
+                "elevation",
+                "slope",
+                "AGERA5-PRECIP",
+                "AGERA5-TMEAN",
+            ]
+            for band in bands:
+                if band in ds.data_vars:
+                    ds[band] = ds[band].fillna(65535).astype("uint16")
 
-        gdf.to_parquet(item_asset_path, index=False)
+            ds.to_netcdf(item_asset_path)
+        else:
+            # Post-processing for Parquet files
+            gdf = gpd.read_parquet(item_asset_path)
+
+            gdf["timestamp"] = pd.to_datetime(gdf["date"])
+            gdf.drop(columns=["date"], inplace=True)
+
+            bands = [
+                "S2-L2A-B02",
+                "S2-L2A-B03",
+                "S2-L2A-B04",
+                "S2-L2A-B05",
+                "S2-L2A-B06",
+                "S2-L2A-B07",
+                "S2-L2A-B08",
+                "S2-L2A-B8A",
+                "S2-L2A-B11",
+                "S2-L2A-B12",
+                "S1-SIGMA0-VH",
+                "S1-SIGMA0-VV",
+                "elevation",
+                "slope",
+                "AGERA5-PRECIP",
+                "AGERA5-TMEAN",
+            ]
+            gdf[bands] = gdf[bands].fillna(65535).astype("uint16")
+
+            gdf.to_parquet(item_asset_path, index=False)
 
     return job_items
 
@@ -354,6 +408,9 @@ def setup_extraction_functions(
     memory: str,
     python_memory: str,
     max_executors: int,
+    output_format: str,
+    fetch_type: FetchType,
+    epsg: int,
 ) -> tuple[Callable, Callable, Callable]:
     """Setup the datacube creation, path generation and post-job action
     functions for the given collection. Returns a tuple of three functions:
@@ -368,6 +425,9 @@ def setup_extraction_functions(
             executor_memory=memory,
             python_memory=python_memory,
             max_executors=max_executors,
+            output_format=output_format,
+            fetch_type=fetch_type,
+            epsg=epsg,
         ),
     }
 
@@ -408,7 +468,7 @@ def setup_extraction_functions(
 
 
 def manager_main_loop(
-    manager: GFMAPJobManager,
+    manager: ExtractionJobManager,
     collection: ExtractionCollection,
     job_df: gpd.GeoDataFrame,
     datacube_fn: Callable,
@@ -466,7 +526,10 @@ def extract(args):
         args.output_folder.mkdir(parents=True, exist_ok=True)
         # raise ValueError(f"Output folder {args.output_folder} does not exist.")
 
-    tracking_df_path = Path(args.output_folder) / "job_tracking.csv"
+    # create a tracking file specific for the dataset to avoid preventing extractions to run
+    # when a new dataset is extracted in the same output folder
+    dataset_name = args.input_df.stem
+    tracking_df_path = Path(args.output_folder) / f"job_tracking_{dataset_name}.csv"
 
     # # Load the input dataframe and build the job dataframe
     # if args.routine == "training":
@@ -474,7 +537,10 @@ def extract(args):
     input_df = load_dataframe(args.input_df)
 
     # if input_df[args.unique_id_column] != "":
-    input_df["sample_id"] = input_df[args.unique_id_column]
+    if args.unique_id_column != "":
+        input_df["sample_id"] = input_df[args.unique_id_column]
+    else:
+        input_df["sample_id"] = input_df.index.astype(str)
     assert input_df["sample_id"].is_unique, "The unique ID column is not unique."
 
     job_df = None
@@ -496,19 +562,19 @@ def extract(args):
         args.memory,
         args.python_memory,
         args.max_executors,
+        args.output_format,
+        args.fetch_type,
+        args.epsg,
     )
 
     # Initialize and setups the job manager
     pipeline_log.info("Initializing the job manager.")
 
-    job_manager = GFMAPJobManager(
-        output_dir=args.output_folder,
+    job_manager = ExtractionJobManager(
+        root_dir=args.output_folder,
         output_path_generator=path_fn,
         post_job_action=post_job_fn,
         poll_sleep=60,
-        n_threads=4,
-        restart_failed=args.restart_failed,
-        stac_enabled=False,
     )
 
     job_manager.add_backend(
@@ -531,18 +597,20 @@ def generate_input_for_extractions(input_dict):
     job_inputs = pd.Series(
         {
             "collection": ExtractionCollection.SAMPLE_SCALEAG,
-            "output_folder": Path(input_dict["output_folder"]),
+            "output_folder": Path(input_dict["output_folder"])
+            / f"ref_id={Path(input_dict['input_df']).stem}",
             "input_df": Path(input_dict["input_df"]),
             "start_date": start_date,
             "end_date": end_date,
-            "max_locations": 50,
+            "max_locations": 250,
             "memory": "1800m",
             "executor-memory": "3G",
             "python_memory": "3G",
             "max_executors": 22,
-            "parallel_jobs": 2,
-            "soft-errors": 0.8,
+            "parallel_jobs": 10,
+            "soft-errors": 0.1,
             "restart_failed": True,
+            "output_format": input_dict.get("output_format", "NetCDF"),
             "unique_id_column": input_dict["unique_id_column"],
             "composite_window": input_dict["composite_window"],
         }
@@ -624,7 +692,7 @@ def collect_inputs_for_inference(
     outputfile = Path(output_path) / f"{output_filename}"
     inputs.execute_batch(
         outputfile=outputfile,
-        out_format="NetCDF",
+        out_format="netCDF",
         title="ScaleAgData collect inference inputs",
         description="Job that collects inputs for ScaleAg inference",
         job_options=job_options,

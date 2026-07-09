@@ -1,0 +1,1 @@
+The notebook `demo_presto_few_shot_learning.ipynb` was the first Demo of FSL which took place in September 2024. Given that many things have changed since, this is not working anymore but might give an idea of what has already been tried.

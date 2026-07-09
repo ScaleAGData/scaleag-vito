@@ -1,13 +1,11 @@
 import logging
-import sys
 from pathlib import Path
-from typing import List, Literal, Optional, Union
+from typing import List, Literal, Optional
 
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
-sys.path.append("/home/vito/millig/gio/prometheo/")
 logger = logging.getLogger("__main__")
 
 STATIC_FEATURES = ["DEM-alt-20m", "DEM-slo-20m", "lat", "lon"]
@@ -186,6 +184,7 @@ Median observed distance between observations: {median_distance.unique()} days"
 
 
 class TimeSeriesProcessor:
+
     @staticmethod
     def calculate_valid_position(df_long: pd.DataFrame) -> pd.DataFrame:
         df_long["valid_time_ts_diff_days"] = (
@@ -200,22 +199,24 @@ class TimeSeriesProcessor:
         return df_long
 
     @staticmethod
+    def get_expected_dates(start_date, end_date, freq):
+        start_date = _get_correct_date(start_date, compositing_window=freq)
+        end_date = _get_correct_date(end_date, compositing_window=freq)
+        if freq == "dekad":
+            date_array = _get_dekadal_dates(start_date, end_date)
+        elif freq == "month":
+            date_array = _get_monthly_dates(start_date, end_date)
+        else:
+            raise NotImplementedError(f"Frequency {freq} not supported")
+        return pd.DatetimeIndex(date_array)
+
+    @staticmethod
     def fill_missing_dates(
         df_long: pd.DataFrame, freq: str, index_columns: List[str]
     ) -> pd.DataFrame:
-        def get_expected_dates(start_date, end_date, freq):
-            start_date = _get_correct_date(start_date, compositing_window=freq)
-            end_date = _get_correct_date(end_date, compositing_window=freq)
-            if freq == "dekad":
-                date_array = _get_dekadal_dates(start_date, end_date)
-            elif freq == "month":
-                date_array = _get_monthly_dates(start_date, end_date)
-            else:
-                raise NotImplementedError(f"Frequency {freq} not supported")
-            return pd.DatetimeIndex(date_array)
 
         def fill_sample(sample_df):
-            expected_dates = get_expected_dates(
+            expected_dates = TimeSeriesProcessor.get_expected_dates(
                 sample_df["start_date"].iloc[0], sample_df["end_date"].iloc[0], freq
             )
             missing_dates = expected_dates.difference(sample_df["timestamp"])
@@ -231,7 +232,11 @@ class TimeSeriesProcessor:
 
         unique_date_pairs = df_long[["start_date", "end_date"]].drop_duplicates()
         unique_date_pairs["expected_n_observations"] = unique_date_pairs.apply(
-            lambda xx: len(get_expected_dates(xx["start_date"], xx["end_date"], freq)),
+            lambda xx: len(
+                TimeSeriesProcessor.get_expected_dates(
+                    xx["start_date"], xx["end_date"], freq
+                )
+            ),
             axis=1,
         )
         unique_date_pairs.set_index(["start_date", "end_date"], inplace=True)
@@ -277,105 +282,87 @@ Filling them with NODATAVALUE."
             return pd.concat([df_long, df_subset], ignore_index=True)
 
     @staticmethod
-    def add_dummy_timestamps(
+    def check_vt_closeness(
         df_long: pd.DataFrame, min_edge_buffer: int, freq: str
     ) -> pd.DataFrame:
-        def create_dummy_rows(samples_to_add, n_ts_to_add, direction, freq):
-            dummy_df = df_long[
-                df_long["sample_id"].isin(samples_to_add)
-                & (
-                    df_long["timestamp_ind"]
-                    == (0 if direction == "before" else df_long["timestamp_ind"].max())
-                )
-            ].copy()
+        """
+        Check valid_time closeness to the edges of the time series.
+        Essential for downstream processing at the Dataset level.
+        Samples that fail this check will be removed.
 
-            if freq == "month":
-                offset = pd.DateOffset(
-                    months=n_ts_to_add * (1 if direction == "after" else -1)
-                )
-                dummy_df["timestamp"] += offset
-            elif freq == "dekad":
-                offset = pd.DateOffset(
-                    days=n_ts_to_add * (10 if direction == "after" else -10)
-                )
-                dummy_df["timestamp"] = dummy_df["timestamp"] + offset
-                dummy_df["timestamp"] = dummy_df["timestamp"].apply(
-                    _get_correct_date, compositing_window=freq
-                )
+        Parameters
+        ----------
+        df_long : pd.DataFrame
+            Long-format DataFrame containing time series data with columns including 'sample_id',
+            'timestamp', 'valid_position', 'timestamp_ind', and feature columns.
+        min_edge_buffer : int
+            Minimum number of timestamps required as buffer before the first valid observation
+            and after the last valid observation.
+            Must be consistent with what is used at the Dataset level.
+        freq : str
+            Frequency of time series data, either 'month' or 'dekad' (10-day period).
 
-            # dummy_df["timestamp"] += offset
-            dummy_df[FEATURE_COLUMNS] = NODATAVALUE
-            return dummy_df
+        Returns
+        -------
+        pd.DataFrame
+            DataFrame with only those samples that satisfy the minimum edge buffer
+            requirement.
+        """
 
-        latest_obs_position = df_long.groupby("sample_id")[
-            ["valid_position", "timestamp_ind", "valid_position_diff"]
-        ].max()
+        if df_long.empty:
+            return df_long
 
-        samples_after_end_date = latest_obs_position[
-            latest_obs_position["valid_position"] > latest_obs_position["timestamp_ind"]
-        ].index.tolist()
-        samples_before_start_date = latest_obs_position[
-            latest_obs_position["valid_position"] < 0
-        ].index.tolist()
-
-        if (len(samples_after_end_date) > 0) or (len(samples_before_start_date) > 0):
-            logger.warning(
-                f"Removing {len(samples_after_end_date)} samples with valid_time \
-after the end_date and {len(samples_before_start_date)} samples with valid_time \
-before the start_date"
+        # Summarise per sample to evaluate distance from the valid time to window edges.
+        summary = (
+            df_long.groupby("sample_id")
+            .agg(
+                start_date=("start_date", "first"),
+                end_date=("end_date", "first"),
+                valid_time=("valid_time", "first"),
+                first_timestamp_ind=("timestamp_ind", "min"),
+                last_timestamp_ind=("timestamp_ind", "max"),
+                valid_position=("valid_position", "first"),
             )
-            df_long = df_long[
-                ~df_long["sample_id"].isin(
-                    samples_before_start_date + samples_after_end_date
-                )
-            ]
-
-        intermediate_dummy_df = pd.concat(
-            [
-                create_dummy_rows(
-                    latest_obs_position[
-                        (min_edge_buffer - latest_obs_position["valid_position"])
-                        >= -n_ts_to_add
-                    ].index,
-                    n_ts_to_add,
-                    "before",
-                    freq,
-                )
-                for n_ts_to_add in range(1, min_edge_buffer)
-            ]
-            + [
-                create_dummy_rows(
-                    latest_obs_position[
-                        (min_edge_buffer - latest_obs_position["valid_position_diff"])
-                        >= n_ts_to_add
-                    ].index,
-                    n_ts_to_add,
-                    "after",
-                    freq,
-                )
-                for n_ts_to_add in range(1, min_edge_buffer)
-            ]
+            .copy()
         )
 
-        if not intermediate_dummy_df.empty:
+        summary["distance_to_start"] = (
+            summary["valid_position"] - summary["first_timestamp_ind"]
+        )
+        summary["distance_to_end"] = (
+            summary["last_timestamp_ind"] - summary["valid_position"]
+        )
+
+        faulty_end = summary[summary["distance_to_end"] < min_edge_buffer]
+
+        # best effort to identify the dataset being processed, purely for logging
+        ref_id = "_".join(df_long["sample_id"].iloc[0].split("_")[:-1])
+        if not faulty_end.empty:
             logger.warning(
-                f"Added {intermediate_dummy_df['timestamp'].nunique()} dummy timestamp(s) \
-for {intermediate_dummy_df['sample_id'].nunique()} samples to fill in the found gaps."
+                f"{ref_id}: Dropping {len(faulty_end)} samples with valid_time too close to the end of the time series. \n"
+                f"Reason: Minimum edge buffer of {min_edge_buffer} not satisfied. Samples with the following date ranges are affected:\n"
+                f"{faulty_end[['start_date', 'valid_time', 'end_date']].drop_duplicates().to_string(index=False)}"
             )
 
-        df_long = pd.concat([df_long, intermediate_dummy_df])
+        remaining_summary = summary.drop(index=faulty_end.index, errors="ignore")
+        faulty_start = remaining_summary[
+            remaining_summary["distance_to_start"] < min_edge_buffer
+        ]
+        if not faulty_start.empty:
+            logger.warning(
+                f"{ref_id}: Dropping {len(faulty_start)} samples with valid_time too close to the start of the time series. \n"
+                f"Reason: Minimum edge buffer of {min_edge_buffer} not satisfied. Samples with the following date ranges are affected:\n"
+                f"{faulty_start[['start_date', 'valid_time', 'end_date']].drop_duplicates().to_string(index=False)}"
+            )
 
-        # re-initilize all dates and positions with respect to potentially added new timestamps
-        df_long["timestamp_ind"] = (
-            df_long.groupby("sample_id")["timestamp"].rank().astype(int) - 1
-        )
-        df_long["start_date"] = df_long.groupby("sample_id")["timestamp"].transform(
-            "min"
-        )
-        df_long["end_date"] = df_long.groupby("sample_id")["timestamp"].transform("max")
-        df_long = TimeSeriesProcessor.calculate_valid_position(df_long)
+        to_drop = faulty_end.index.union(faulty_start.index)
+        if to_drop.empty:
+            logger.info(
+                f"{ref_id}: All samples' valid_time satisfy the min_edge_buffer requirement."
+            )
+            return df_long
 
-        return df_long
+        return df_long[~df_long["sample_id"].isin(to_drop)]
 
 
 class ColumnProcessor:
@@ -449,13 +436,27 @@ def process_parquet(
     df: pd.DataFrame,
     freq: Literal["month", "dekad"] = "month",
     use_valid_time: bool = False,
-    required_min_timesteps: Optional[int] = None,
+    # required_min_timesteps: Optional[int] = None,
     min_edge_buffer: int = 2,
     return_after_fill: bool = False,
+    required_min_timesteps: Optional[int] = None,
 ) -> pd.DataFrame:
 
     if df.empty:
         raise ValueError("Input DataFrame is empty!")
+
+    # Determine required minimum timesteps based on frequency
+    if required_min_timesteps is None:
+        if freq == "dekad":
+            required_min_timesteps = 36
+        if freq == "month":
+            required_min_timesteps = 12
+
+    # `feature_index` is an openEO spefic column we should remove to avoid
+    # it being treated as unique values which is not true after merging
+    # multiple parquet files
+    if "feature_index" in df.columns:
+        df = df.drop("feature_index", axis=1)
 
     # Process columns
     df = (
@@ -478,6 +479,20 @@ def process_parquet(
     index_columns.extend(["start_date", "end_date"])
     index_columns = list(set(index_columns))
 
+    # Perform check on number of unique values for each index column
+    nsamples = df["sample_id"].nunique()
+    to_drop = []
+    for col in index_columns:
+        if df[col].nunique() > nsamples:
+            # best effort to identify the dataset being processed, purely for logging
+            ref_id = "_".join(df["sample_id"].iloc[0].split("_")[:-1])
+            df = df.drop(col, axis=1)
+            to_drop.append(col)
+            logger.warning(
+                f"{ref_id}: Column {col} has more unique values than samples. This may cause issues, column has been dropped!"
+            )
+    index_columns = [col for col in index_columns if col not in to_drop]
+
     # Process time series
     processor = TimeSeriesProcessor()
     df = processor.fill_missing_dates(df, freq, index_columns)
@@ -488,11 +503,10 @@ def process_parquet(
     df["timestamp_ind"] = df.groupby("sample_id")["timestamp"].rank().astype(int) - 1
 
     if use_valid_time:
-        df["valid_time"] = df["valid_time"].astype("datetime64[ns]")
         df = processor.calculate_valid_position(df)
         index_columns.append("valid_position")
         df["valid_position_diff"] = df["timestamp_ind"] - df["valid_position"]
-        df = processor.add_dummy_timestamps(df, min_edge_buffer, freq)
+        df = processor.check_vt_closeness(df, min_edge_buffer, freq)
 
     df["available_timesteps"] = df["sample_id"].map(
         df.groupby("sample_id")["timestamp"].nunique().astype(int)
@@ -593,7 +607,7 @@ def get_buffered_window_of_interest(
     window_of_interest: List[str],
     buffer: int = 3,
     compositing_window: Literal["dekad", "month"] = "dekad",
-):
+) -> List[str]:
     start_date = _get_correct_date(
         window_of_interest[0], compositing_window=compositing_window
     )
@@ -615,7 +629,7 @@ def window_of_interest_from_valid_date(
     valid_dates: List[str],
     buffer: int,
     compositing_window: Literal["dekad", "month"] = "dekad",
-):
+) -> List[str]:
     start_dates, end_dates = [], []
     for date in valid_dates:
         curr_window_of_interest = [date, date]
@@ -630,63 +644,101 @@ def window_of_interest_from_valid_date(
 
 
 def out_window_to_nodata(
-    df: pd.DataFrame, window_of_interest: List[str], no_data_value: int = 65535
+    df: pd.DataFrame,
+    expected_dates: pd.DatetimeIndex,
+    window_of_interest: Optional[List[str]],
+    no_data_value: int = 65535,
 ):
+    # bands = [
+    #     "S1-SIGMA0-VV",
+    #     "S1-SIGMA0-VH",
+    #     "S2-L2A-B02",
+    #     "S2-L2A-B03",
+    #     "S2-L2A-B04",
+    #     "S2-L2A-B05",
+    #     "S2-L2A-B06",
+    #     "S2-L2A-B07",
+    #     "S2-L2A-B08",
+    #     "S2-L2A-B8A",
+    #     "S2-L2A-B11",
+    #     "S2-L2A-B12",
+    #     "AGERA5-PRECIP",
+    #     "AGERA5-TMEAN",
+    #     "slope",
+    #     "elevation",
+    # ]
     bands = [
-        "S1-SIGMA0-VV",
-        "S1-SIGMA0-VH",
-        "S2-L2A-B02",
-        "S2-L2A-B03",
-        "S2-L2A-B04",
-        "S2-L2A-B05",
-        "S2-L2A-B06",
-        "S2-L2A-B07",
-        "S2-L2A-B08",
-        "S2-L2A-B8A",
-        "S2-L2A-B11",
-        "S2-L2A-B12",
-        "AGERA5-PRECIP",
-        "AGERA5-TMEAN",
-        "slope",
-        "elevation",
+        "METEO-temperature_mean",
+        "METEO-precipitation_flux",
+        "OPTICAL-B02",
+        "OPTICAL-B03",
+        "OPTICAL-B04",
+        "OPTICAL-B05",
+        "OPTICAL-B06",
+        "OPTICAL-B07",
+        "OPTICAL-B08",
+        "OPTICAL-B8A",
+        "OPTICAL-B11",
+        "OPTICAL-B12",
+        "SAR-VV",
+        "SAR-VH",
+        "DEM-slo-20m",
+        "DEM-alt-20m",
     ]
     # check that bands are present in the dataframe
-    existing_bands = [b for b in bands if b in df.columns]
+    # existing_bands = [b for b in bands if b in df.columns]
 
     # Convert timestamps and window_of_interest to np.datetime64
-    cutoff_start_date = np.datetime64(window_of_interest[0], "D")
-    cutoff_end_date = np.datetime64(window_of_interest[1], "D")
+    if window_of_interest is not None:
+        cutoff_start_date = np.datetime64(window_of_interest[0], "D")
+        cutoff_end_date = np.datetime64(window_of_interest[1], "D")
 
-    # Identify rows outside the window of interest
-    outside_range = (df["timestamp"] < cutoff_start_date) | (
-        df["timestamp"] > cutoff_end_date
-    )
+        # # Identify rows outside the window of interest
+        # outside_range = (df["timestamp"] < cutoff_start_date) | (
+        #     df["timestamp"] > cutoff_end_date
+        # )
+        outside_range_indices = [
+            i
+            for i, ts in enumerate(expected_dates)
+            if (ts < cutoff_start_date) or (ts > cutoff_end_date)
+        ]
+        # outside_range_indices = expected_dates[
+        #     (expected_dates < cutoff_start_date) | (expected_dates > cutoff_end_date)
+        # ]
 
-    # Assign no_data_value to the relevant bands for rows outside the range
-    df.loc[outside_range, existing_bands] = no_data_value
+        time_steps_to_mask = [
+            f"{b}-ts{ts}" for ts in outside_range_indices for b in bands
+        ]
+        # Assign no_data_value to the relevant bands for rows outside the range
+        df.loc[:, time_steps_to_mask] = no_data_value
 
-    return df
+        return df
+    else:
+        raise ValueError(
+            "window_of_interest must be provided for out_window_to_nodata."
+        )
 
 
 def extract_window_of_interest(
-    df: pd.DataFrame, window_of_interest: List[str], buffer: Optional[int] = None
+    df: pd.DataFrame,
+    window_of_interest: List[str],
+    buffer: Optional[int] = None,
 ):
-    df_filtered = df.copy()
 
     if buffer is not None:
         window_of_interest = get_buffered_window_of_interest(
             window_of_interest, buffer=buffer
         )
+    else:
+        # Convert timestamps and window_of_interest to np.datetime64
+        cutoff_start_date = np.datetime64(window_of_interest[0], "D")
+        cutoff_end_date = np.datetime64(window_of_interest[1], "D")
 
-    # Convert timestamps and window_of_interest to np.datetime64
-    cutoff_start_date = np.datetime64(window_of_interest[0], "D")
-    cutoff_end_date = np.datetime64(window_of_interest[1], "D")
-
-    # Filter rows within the window of interest
-    df_filtered = df_filtered[
-        (df_filtered["timestamp"] >= cutoff_start_date)
-        & (df_filtered["timestamp"] <= cutoff_end_date)
-    ]
+        # Filter rows within the window of interest
+        df_filtered = df[
+            (df["timestamp"] >= cutoff_start_date)
+            & (df["timestamp"] <= cutoff_end_date)
+        ]
 
     # Assign start and end dates
     df_filtered["start_date"] = window_of_interest[0]
@@ -694,17 +746,57 @@ def extract_window_of_interest(
     return df_filtered
 
 
+def process_data_with_window(
+    _data: pd.DataFrame,
+    window_of_interest: Optional[List[str]],
+    required_min_timesteps: int,
+    use_valid_time: bool,
+    buffer_window: int,
+    composite_window: Literal["dekad", "month"],
+) -> pd.DataFrame:
+    if (
+        (window_of_interest is None)
+        and ("original_date" in _data.columns)
+        and use_valid_time
+    ):
+        assert (
+            required_min_timesteps > 0
+        ), "required_min_timesteps must be > 0 when window_of_interest is not provided"
+        window_of_interest = window_of_interest_from_valid_date(
+            _data["original_date"].unique().tolist(),
+            buffer=required_min_timesteps // 2,
+            compositing_window=composite_window,
+        )
+    if window_of_interest is not None:
+        if buffer_window > 0:
+            window_of_interest = get_buffered_window_of_interest(
+                window_of_interest,
+                buffer=buffer_window,
+                compositing_window=composite_window,
+            )
+        _data = extract_window_of_interest(_data, window_of_interest)
+    _data_pivot = process_parquet(
+        _data,
+        freq=composite_window,
+        use_valid_time=use_valid_time,
+        required_min_timesteps=required_min_timesteps,
+    )
+    _data_pivot.reset_index(inplace=True)
+    return _data_pivot
+
+
 def load_dataset(
     files_root_dir: str,
-    window_of_interest: Optional[Union[List[str], None]] = None,
+    window_of_interest: Optional[List[str]] = None,
     use_valid_time: bool = False,
     required_min_timesteps: int = 36,
     buffer_window: int = 0,
     no_data_value: int = 65535,
     composite_window: Literal["dekad", "month"] = "dekad",
+    out_of_window_to_nodata: bool = False,
 ):
 
-    files = list(Path(files_root_dir).glob("*/*/*parquet"))
+    files = list(Path(files_root_dir).rglob("**/*parquet"))
     df_list = []
 
     for f in tqdm(files):
@@ -713,36 +805,37 @@ def load_dataset(
         _data["ref_id"] = _ref_id
         _data["timestamp"] = _data["timestamp"].dt.tz_localize(None)  # .dt.floor("D")
         # if no window of interest is provided, use the original date column to create a window of interest
-        if (
-            (window_of_interest is None)
-            and ("original_date" in _data.columns)
-            and use_valid_time
-        ):
+        if isinstance(window_of_interest, dict):
+            woi = None
+            for k in window_of_interest.keys():
+                if k in str(f):
+                    woi = window_of_interest[k]
+                    break
             assert (
-                required_min_timesteps > 0
-            ), "required_min_timesteps must be > 0 when window_of_interest is not provided"
-            window_of_interest = window_of_interest_from_valid_date(
-                _data["original_date"].unique().tolist(),
-                buffer=required_min_timesteps // 2,
-                compositing_window=composite_window,
-            )
-        if window_of_interest is not None:
-            if buffer_window > 0:
-                window_of_interest_buffered = get_buffered_window_of_interest(
-                    window_of_interest,
-                    buffer=buffer_window,
-                    compositing_window=composite_window,
-                )
-                # filter data to only include data within the window of interest
-                _data = extract_window_of_interest(_data, window_of_interest_buffered)
-            else:
-                _data = extract_window_of_interest(_data, window_of_interest)
-        _data_pivot = process_parquet(
-            _data, freq=composite_window, use_valid_time=use_valid_time
+                woi is not None
+            ), f"No window of interest info found for the dataset {str(f)}"
+        else:
+            woi = window_of_interest if not out_of_window_to_nodata else None
+        _data_pivot = process_data_with_window(
+            _data,
+            woi,
+            required_min_timesteps,
+            use_valid_time,
+            buffer_window,
+            composite_window,
         )
-        _data_pivot.reset_index(inplace=True)
         df_list.append(_data_pivot)
-    df = pd.concat(df_list)
+    df = pd.concat(df_list).reset_index(drop=True)
     df = df.fillna(no_data_value)
     del df_list
+    if out_of_window_to_nodata:
+        expected_dates = TimeSeriesProcessor.get_expected_dates(
+            df["start_date"].min(), df["end_date"].max(), composite_window
+        )
+        df = out_window_to_nodata(
+            df,
+            expected_dates=expected_dates,
+            window_of_interest=window_of_interest,
+            no_data_value=no_data_value,
+        )
     return df

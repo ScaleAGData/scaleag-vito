@@ -4,6 +4,8 @@ own functions, but the setup and main thread execution is done here."""
 import argparse
 from pathlib import Path
 
+from openeo_gfmap import FetchType
+
 from scaleagdata_vito.openeo.extract_sample_scaleag import ExtractionCollection, extract
 
 if __name__ == "__main__":
@@ -88,25 +90,55 @@ if __name__ == "__main__":
         choices=["training", "inference"],
         default="training",
     )
+    parser.add_argument(
+        "--output_format",
+        type=str,
+        choices=["NetCDF", "Parquet"],
+        default="geoparquet",
+        help="The format to store the extracted data.",
+    )
+    parser.add_argument(
+        "--fetch_type",
+        type=FetchType,
+        choices=list(FetchType),
+        default=FetchType.POINT,
+        help="The type of data fetching to use.",
+    )
     args = parser.parse_args()
 
-    # import pandas as pd
-    # args = pd.Series(
-    #     dict(
-    #         collection = ExtractionCollection.SAMPLE_SCALEAG,
-    #         output_folder=Path("/home/giorgia/Private/data/scaleag/18032025/"),
-    #         input_df=Path("/home/giorgia/Private/data/scaleag/18032025/LPIS_subfields_Flanders_yield_cleaned.geojson"),
-    #         start_date="2022-01-01",
-    #         end_date="2022-12-31",
-    #         unique_id_column="fieldname",
-    #         composite_window="dekad",
-    #         max_locations=50,
-    #         memory="1800m",
-    #         python_memory="1900m",
-    #         max_executors=22,
-    #         parallel_jobs=10,
-    #         restart_failed=False,
-    #     )
-    # )
+    import json
 
+    import pandas as pd
+
+    input_filename = Path(
+        "/data/users/Private/giorgia/git/GEOMaize/data/inference/inference_extent_50km_latlon.geojson"
+    )
+    args = pd.Series(
+        dict(
+            collection=ExtractionCollection.SAMPLE_SCALEAG,
+            output_folder=Path(
+                f"/data/users/Private/giorgia/git/GEOMaize/data/inference/month/ref_id={input_filename.stem}/"
+            ),
+            input_df=input_filename,
+            start_date="2025-07-01",
+            end_date="2025-11-30",
+            unique_id_column="id",
+            composite_window="month",
+            max_locations=250,
+            memory="1800m",
+            executor_memory="3G",
+            python_memory="3G",
+            max_executors=22,
+            parallel_jobs=10,
+            soft_errors=0.1,
+            restart_failed=False,
+            output_format="netCDF",
+            fetch_type=FetchType.TILE,
+        )
+    )
+    output_json_path = args.output_folder / "extraction_args.json"
+    Path(args.output_folder).mkdir(parents=True, exist_ok=True)
+    with open(output_json_path, "w") as f:
+        args_str = args.apply(str)
+        json.dump(args_str.to_dict(), f, indent=4)
     extract(args)

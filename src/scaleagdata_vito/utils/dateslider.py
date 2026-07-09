@@ -14,7 +14,7 @@ class date_slider:
     The processing period will always start the first day of a month and end the last day of a month.
     """
 
-    def __init__(self, start_date=datetime(2018, 1, 1), end_date=datetime(2024, 12, 1)):
+    def __init__(self, start_date=datetime(2018, 1, 1), end_date=datetime(2025, 10, 1)):
 
         # Define the slider
         dates = pd.date_range(start_date, end_date, freq="MS")
