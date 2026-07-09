@@ -56,19 +56,16 @@ A **foundation model** is trained on large, diverse, *unlabelled* data to learn 
 
 ## ⚙️ Installation
 
-### 0. Clone the repository and switch to the most up-to-date branch
+### 0. Clone the repository
 
 ```bash
 git clone https://github.com/your-username/scaleag-vito.git
-
-# switch to the prometheo-integration branch (most up to date, soon to be merged to main)
-git checkout prometheo-integration
 ```
 
 ### 1. Create a new conda environment
 
 ```bash
-conda create -n scaleag-env python=3.10
+conda create -n scaleag-env python=3.11
 conda activate scaleag-env
 ```
 
@@ -91,7 +88,7 @@ This installs:
 
 ## ✅ Requirements
 
-- Python ≥ 3.8
+- Python ≥ 3.11
 - A free [Copernicus Data Space Ecosystem (CDSE)](https://dataspace.copernicus.eu/) account — provides 10,000 monthly processing credits
 - Sufficient disk space for EO data extractions
 
