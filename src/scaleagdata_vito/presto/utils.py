@@ -1,5 +1,4 @@
 import os
-import pprint
 import random
 from pathlib import Path
 from typing import Literal, Union
@@ -89,7 +88,7 @@ def get_encodings(
                 latlons=to_torchtensor(latlon, device=device).float(),
                 mask=to_torchtensor(mask, device=device).long(),
                 # presto wants 0 indexed months, not 1 indexed months
-                month=to_torchtensor(timestamps, device=device),
+                month=to_torchtensor(timestamps[:, :, 1] - 1, device=device),
                 eval_pooling=eval_pooling,
             )
             all_encodings.append(encodings.numpy())
@@ -119,14 +118,12 @@ def evaluate_finetuned_model(
     # predict with Presto head and evaluate depending on the task
     preds, targets = predict_with_head(test_dl, finetuned_model)
     if test_ds.task_type == "binary":
-        preds = preds > 0.5
-        metrics = classification_report(targets, preds, output_dict=True)
-        pprint.pprint(metrics)
+        preds_bin = (preds > 0.5).astype(int)
+        metrics = classification_report(targets, preds_bin, output_dict=True)
     elif test_ds.task_type == "multiclass":
         preds = [test_ds.index_to_class[int(t)] for t in preds]
         targets = [test_ds.index_to_class[int(t)] for t in targets]
         metrics = classification_report(targets, preds, output_dict=True)
-        pprint.pprint(metrics)
     else:
         # targets_original_units = np.expm1(targets)
         # preds_original_units = np.expm1(preds)
@@ -157,7 +154,6 @@ def evaluate_finetuned_model(
                 4,
             ),
         }
-        pprint.pprint(metrics)
         return metrics, preds_original_units, targets_original_units
     return metrics, preds, targets
 
@@ -202,6 +198,8 @@ def finetune_on_task(
     patience: int = 3,
     num_workers: int = 2,
     lr: float = 2e-5,
+    freeze_layers: Literal["", "encoder", "all"] = "encoder",
+    unfreeze_epoch: int = 10,
 ):
 
     # composite_window = train_ds.composite_window
@@ -277,6 +275,8 @@ def finetune_on_task(
         scheduler=scheduler,
         hyperparams=hyperparams,
         setup_logging=False,  # Already setup logging
+        freeze_layers=freeze_layers,
+        unfreeze_epoch=unfreeze_epoch,
     )
     return finetuned_model
 

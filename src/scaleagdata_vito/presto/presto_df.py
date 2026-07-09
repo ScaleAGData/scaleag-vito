@@ -439,16 +439,18 @@ def process_parquet(
     # required_min_timesteps: Optional[int] = None,
     min_edge_buffer: int = 2,
     return_after_fill: bool = False,
+    required_min_timesteps: Optional[int] = None,
 ) -> pd.DataFrame:
 
     if df.empty:
         raise ValueError("Input DataFrame is empty!")
 
     # Determine required minimum timesteps based on frequency
-    if freq == "dekad":
-        required_min_timesteps = 36
-    if freq == "month":
-        required_min_timesteps = 12
+    if required_min_timesteps is None:
+        if freq == "dekad":
+            required_min_timesteps = 36
+        if freq == "month":
+            required_min_timesteps = 12
 
     # `feature_index` is an openEO spefic column we should remove to avoid
     # it being treated as unique values which is not true after merging
@@ -647,23 +649,41 @@ def out_window_to_nodata(
     window_of_interest: Optional[List[str]],
     no_data_value: int = 65535,
 ):
+    # bands = [
+    #     "S1-SIGMA0-VV",
+    #     "S1-SIGMA0-VH",
+    #     "S2-L2A-B02",
+    #     "S2-L2A-B03",
+    #     "S2-L2A-B04",
+    #     "S2-L2A-B05",
+    #     "S2-L2A-B06",
+    #     "S2-L2A-B07",
+    #     "S2-L2A-B08",
+    #     "S2-L2A-B8A",
+    #     "S2-L2A-B11",
+    #     "S2-L2A-B12",
+    #     "AGERA5-PRECIP",
+    #     "AGERA5-TMEAN",
+    #     "slope",
+    #     "elevation",
+    # ]
     bands = [
-        "S1-SIGMA0-VV",
-        "S1-SIGMA0-VH",
-        "S2-L2A-B02",
-        "S2-L2A-B03",
-        "S2-L2A-B04",
-        "S2-L2A-B05",
-        "S2-L2A-B06",
-        "S2-L2A-B07",
-        "S2-L2A-B08",
-        "S2-L2A-B8A",
-        "S2-L2A-B11",
-        "S2-L2A-B12",
-        "AGERA5-PRECIP",
-        "AGERA5-TMEAN",
-        "slope",
-        "elevation",
+        "METEO-temperature_mean",
+        "METEO-precipitation_flux",
+        "OPTICAL-B02",
+        "OPTICAL-B03",
+        "OPTICAL-B04",
+        "OPTICAL-B05",
+        "OPTICAL-B06",
+        "OPTICAL-B07",
+        "OPTICAL-B08",
+        "OPTICAL-B8A",
+        "OPTICAL-B11",
+        "OPTICAL-B12",
+        "SAR-VV",
+        "SAR-VH",
+        "DEM-slo-20m",
+        "DEM-alt-20m",
     ]
     # check that bands are present in the dataframe
     # existing_bands = [b for b in bands if b in df.columns]
@@ -756,7 +776,7 @@ def process_data_with_window(
             )
         _data = extract_window_of_interest(_data, window_of_interest)
     _data_pivot = process_parquet(
-        _data, freq=composite_window, use_valid_time=use_valid_time
+        _data, freq=composite_window, use_valid_time=use_valid_time, required_min_timesteps=required_min_timesteps
     )
     _data_pivot.reset_index(inplace=True)
     return _data_pivot
@@ -792,8 +812,7 @@ def load_dataset(
                 woi is not None
             ), f"No window of interest info found for the dataset {str(f)}"
         else:
-            woi = window_of_interest
-
+            woi = window_of_interest if not out_of_window_to_nodata else None
         _data_pivot = process_data_with_window(
             _data,
             woi,

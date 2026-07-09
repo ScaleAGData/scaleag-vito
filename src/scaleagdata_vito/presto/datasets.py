@@ -416,24 +416,23 @@ class ScaleAgInferenceDataset(Dataset):
         return len(self.all_files)
 
     def nc_to_array(
-        self, filepath: Path, mask_path: Union[str, Path, None] = None
+        self, filepath: Path, coords: Union[None, tuple] = None
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         inarr = xr.open_dataset(filepath)
+        if coords is not None:
+            inarr = inarr.isel(x=slice(coords[0], coords[2]), y=slice(coords[1], coords[3]))
         epsg = CRS.from_wkt(inarr.crs.attrs["crs_wkt"]).to_epsg()
         inarr = inarr.to_array(dim="bands").drop_sel(bands="crs")
-        return self._get_predictors(inarr, epsg, mask_path)
+        return self._get_predictors(inarr, epsg, coords)
 
     def _get_predictors(
-        self, inarr: xr.DataArray, epsg: int, mask_path: Union[str, Path, None] = None
+        self, inarr: xr.DataArray, epsg: int, coords: Union[None, tuple] = None
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         num_pixels = len(inarr.x) * len(inarr.y)
         num_timesteps = len(inarr.t)
 
         # Handle NaN values in Presto compatible way
         inarr = inarr.astype(np.float32)
-        if mask_path is not None:
-            mask = rio.open(mask_path).read(1).astype(bool)
-            inarr = inarr.where(mask, other=NODATAVALUE)
         inarr = inarr.fillna(NODATAVALUE)
 
         s1, s2, meteo, dem = self.initialize_inputs(num_pixels, num_timesteps)

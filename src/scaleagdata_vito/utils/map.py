@@ -1,7 +1,7 @@
 from typing import Optional
 
 import geopandas as gpd
-from ipyleaflet import DrawControl, LayersControl, Map, SearchControl, basemaps
+from ipyleaflet import DrawControl, LayersControl, Map, SearchControl, basemaps, GeoJSON
 from IPython.display import display
 from ipywidgets import HTML, widgets
 from openeo_gfmap import BoundingBoxExtent
@@ -111,6 +111,35 @@ class ui_map:
             layout={"height": "600px"},
         )
         return display(vbox)
+    
+    def add_external_extent(self, extent: BoundingBoxExtent):
+        """Add an external extent to the map as a rectangle.
+
+        Parameters
+        ----------
+        extent : BoundingBoxExtent
+            The extent to add to the map.
+        """
+        minx, miny, maxx, maxy = extent.west, extent.south, extent.east, extent.north
+        rectangle = geometry.box(minx, miny, maxx, maxy)
+        gdf = gpd.GeoDataFrame(geometry=[rectangle], crs=f"EPSG:{extent.epsg}")
+        gdf_latlon = gdf.to_crs("EPSG:4326")
+        geo_json = gdf_latlon.__geo_interface__["features"][0]
+        self.draw_control.last_draw = geo_json
+        
+        geo_json_layer = GeoJSON(
+            data=geo_json,
+            style={
+                "fillColor": "#6be5c3",
+                "color": "#00F",
+                "fillOpacity": 0.3,
+                "weight": 2,
+            },
+        )
+        self.map.add_layer(geo_json_layer)
+         # Center and zoom the map to the extent
+        bounds = gdf_latlon.total_bounds  # minx, miny, maxx, maxy
+        self.map.fit_bounds([[bounds[1], bounds[0]], [bounds[3], bounds[2]]])
 
     def get_extent(self, projection="utm") -> BoundingBoxExtent:
         """Get extent from last drawn rectangle on the map.

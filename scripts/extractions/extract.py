@@ -3,7 +3,7 @@ own functions, but the setup and main thread execution is done here."""
 
 import argparse
 from pathlib import Path
-
+from openeo_gfmap import FetchType
 from scaleagdata_vito.openeo.extract_sample_scaleag import ExtractionCollection, extract
 
 if __name__ == "__main__":
@@ -88,6 +88,20 @@ if __name__ == "__main__":
         choices=["training", "inference"],
         default="training",
     )
+    parser.add_argument(
+        "--output_format",
+        type=str,
+        choices=["NetCDF", "Parquet"],
+        default="geoparquet",
+        help="The format to store the extracted data.",
+    )
+    parser.add_argument(
+        "--fetch_type",
+        type=FetchType,
+        choices=list(FetchType),
+        default=FetchType.POINT,
+        help="The type of data fetching to use.",
+    )
     args = parser.parse_args()
 
     import json
@@ -95,17 +109,17 @@ if __name__ == "__main__":
     import pandas as pd
 
     input_filename = Path(
-                "/vitodata/scaleagdata/data/pixels_fields_netherlands_2024_harvest_2024/pixels_fields_netherlands_2024_harvest.geojson"
+                "/data/users/Private/giorgia/git/GEOMaize/data/inference/inference_extent_50km_latlon.geojson"
             )
     args = pd.Series(
         dict(
             collection=ExtractionCollection.SAMPLE_SCALEAG,
-            output_folder=Path(f"/vitodata/scaleagdata/extractions/04112025/ref_id={input_filename.stem}/"),
+            output_folder=Path(f"/data/users/Private/giorgia/git/GEOMaize/data/inference/month/ref_id={input_filename.stem}/"),
             input_df=input_filename,
-            start_date="2024-03-01",
-            end_date="2025-02-28",
-            unique_id_column="fieldname",
-            composite_window="dekad",
+            start_date="2025-07-01",
+            end_date="2025-11-30",
+            unique_id_column="id",
+            composite_window="month",
             max_locations=250,
             memory="1800m",
             executor_memory="3G",
@@ -114,6 +128,8 @@ if __name__ == "__main__":
             parallel_jobs=10,
             soft_errors=0.1,
             restart_failed=False,
+            output_format="netCDF",
+            fetch_type=FetchType.TILE,
         )
     )
     output_json_path = args.output_folder / "extraction_args.json"
