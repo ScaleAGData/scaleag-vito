@@ -98,3 +98,9 @@ lint.extend-select = ["E", "F", "I"]
 lint.ignore = [
   "E501"
 ]
+
+[tool.ruff.lint.isort]
+known-first-party = ["scaleagdata_vito"]
+
+[tool.isort]
+profile = "black"

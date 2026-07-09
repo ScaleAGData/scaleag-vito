@@ -5,6 +5,7 @@ import argparse
 from pathlib import Path
 
 from openeo_gfmap import FetchType
+
 from scaleagdata_vito.openeo.extract_sample_scaleag import ExtractionCollection, extract
 
 if __name__ == "__main__":

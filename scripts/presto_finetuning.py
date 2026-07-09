@@ -12,14 +12,15 @@ from prometheo.models.presto.wrapper import PretrainedPrestoWrapper, load_presto
 
 # from prometheo.models import Presto
 from prometheo.predictors import collate_fn
+from torch import nn
+from torch.optim import AdamW, lr_scheduler
+from torch.utils.data import DataLoader
+
 from scaleagdata_vito.presto.datasets import ScaleAgDataset
 from scaleagdata_vito.presto.utils import (
     evaluate_finetuned_model,
     get_pretrained_model_url,
 )
-from torch import nn
-from torch.optim import AdamW, lr_scheduler
-from torch.utils.data import DataLoader
 
 DEFAULT_SEED = 42
 use_balancing = True
