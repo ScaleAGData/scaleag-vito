@@ -4,7 +4,6 @@ from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 
 import numpy as np
 import pandas as pd
-import rasterio as rio
 import xarray as xr
 from einops import rearrange
 from loguru import logger
@@ -420,7 +419,9 @@ class ScaleAgInferenceDataset(Dataset):
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         inarr = xr.open_dataset(filepath)
         if coords is not None:
-            inarr = inarr.isel(x=slice(coords[0], coords[2]), y=slice(coords[1], coords[3]))
+            inarr = inarr.isel(
+                x=slice(coords[0], coords[2]), y=slice(coords[1], coords[3])
+            )
         epsg = CRS.from_wkt(inarr.crs.attrs["crs_wkt"]).to_epsg()
         inarr = inarr.to_array(dim="bands").drop_sel(bands="crs")
         return self._get_predictors(inarr, epsg, coords)

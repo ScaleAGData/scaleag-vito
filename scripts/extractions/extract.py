@@ -3,6 +3,7 @@ own functions, but the setup and main thread execution is done here."""
 
 import argparse
 from pathlib import Path
+
 from openeo_gfmap import FetchType
 from scaleagdata_vito.openeo.extract_sample_scaleag import ExtractionCollection, extract
 
@@ -109,12 +110,14 @@ if __name__ == "__main__":
     import pandas as pd
 
     input_filename = Path(
-                "/data/users/Private/giorgia/git/GEOMaize/data/inference/inference_extent_50km_latlon.geojson"
-            )
+        "/data/users/Private/giorgia/git/GEOMaize/data/inference/inference_extent_50km_latlon.geojson"
+    )
     args = pd.Series(
         dict(
             collection=ExtractionCollection.SAMPLE_SCALEAG,
-            output_folder=Path(f"/data/users/Private/giorgia/git/GEOMaize/data/inference/month/ref_id={input_filename.stem}/"),
+            output_folder=Path(
+                f"/data/users/Private/giorgia/git/GEOMaize/data/inference/month/ref_id={input_filename.stem}/"
+            ),
             input_df=input_filename,
             start_date="2025-07-01",
             end_date="2025-11-30",

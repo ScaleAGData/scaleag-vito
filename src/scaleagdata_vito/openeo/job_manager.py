@@ -5,9 +5,8 @@ from typing import Callable, Union
 import openeo
 import pandas as pd
 import pystac
-from openeo.extra.job_management import MultiBackendJobManager
-
 from loguru import logger as pipeline_log
+from openeo.extra.job_management import MultiBackendJobManager
 
 
 class ExtractionJobManager(MultiBackendJobManager):
@@ -67,9 +66,9 @@ class ExtractionJobManager(MultiBackendJobManager):
                 asset_name = list(item.assets.values())[0].title
                 asset_path = job_products[f"{job.job_id}_{asset_name}"][0]
 
-                assert len(item.assets.values()) == 1, (
-                    "Each item should only contain one asset"
-                )
+                assert (
+                    len(item.assets.values()) == 1
+                ), "Each item should only contain one asset"
                 for asset in item.assets.values():
                     asset.href = str(
                         asset_path

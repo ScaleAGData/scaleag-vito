@@ -776,7 +776,10 @@ def process_data_with_window(
             )
         _data = extract_window_of_interest(_data, window_of_interest)
     _data_pivot = process_parquet(
-        _data, freq=composite_window, use_valid_time=use_valid_time, required_min_timesteps=required_min_timesteps
+        _data,
+        freq=composite_window,
+        use_valid_time=use_valid_time,
+        required_min_timesteps=required_min_timesteps,
     )
     _data_pivot.reset_index(inplace=True)
     return _data_pivot

@@ -5,13 +5,13 @@ import matplotlib.gridspec as gridspec
 import matplotlib.pyplot as plt
 import numpy as np
 import rasterio
-from rasterio.transform import from_bounds
 import torch
 import xarray as xr
 from einops import rearrange
 from matplotlib.ticker import ScalarFormatter
 from prometheo.models.presto.wrapper import PretrainedPrestoWrapper
 from prometheo.predictors import collate_fn
+from rasterio.transform import from_bounds
 from torch.utils.data import DataLoader
 
 from scaleagdata_vito.presto.datasets import (
@@ -105,10 +105,20 @@ class PrestoPredictor:
         return target_norm * target_std + target_mean
 
 
-def reshape_result(result: np.ndarray, path_to_input_file: Path, out_path = None, epsg_code_utm=None, coords: Union[None, tuple] = None, mask_path: Union[str, Path, None] = None, epsg: Union[int, None] = None) -> np.ndarray:
+def reshape_result(
+    result: np.ndarray,
+    path_to_input_file: Path,
+    out_path=None,
+    epsg_code_utm=None,
+    coords: Union[None, tuple] = None,
+    mask_path: Union[str, Path, None] = None,
+    epsg: Union[int, None] = None,
+) -> np.ndarray:
     input_arr = xr.load_dataset(path_to_input_file)
     if coords is not None:
-        input_arr = input_arr.isel(x=slice(coords[0], coords[2]), y=slice(coords[1], coords[3]))
+        input_arr = input_arr.isel(
+            x=slice(coords[0], coords[2]), y=slice(coords[1], coords[3])
+        )
 
     x_coords = input_arr.x.values
     y_coords = input_arr.y.values
@@ -165,23 +175,31 @@ def reshape_result(result: np.ndarray, path_to_input_file: Path, out_path = None
         north = y_coords.max()
 
         # Create geotransform
-        transform = from_bounds(west, south, east, north, reshaped_result.shape[1], reshaped_result.shape[0])
+        transform = from_bounds(
+            west, south, east, north, reshaped_result.shape[1], reshaped_result.shape[0]
+        )
 
         # Save as GeoTIFF
-        coords_str = f"x{coords[0]}-{coords[2]}_y{coords[1]}-{coords[3]}" if coords is not None else ""
+        coords_str = (
+            f"x{coords[0]}-{coords[2]}_y{coords[1]}-{coords[3]}"
+            if coords is not None
+            else ""
+        )
         output_path = out_path / f"{path_to_input_file.stem}_{coords_str}_map.tif"
 
         if epsg_code_utm is None:
-            raise ValueError("epsg_code_utm must be provided to save the predictions map as GeoTIFF")
+            raise ValueError(
+                "epsg_code_utm must be provided to save the predictions map as GeoTIFF"
+            )
         with rasterio.open(
             output_path,
-            'w',
-            driver='GTiff',
+            "w",
+            driver="GTiff",
             height=reshaped_result.shape[0],
             width=reshaped_result.shape[1],
             count=1,
             dtype=reshaped_result.dtype,
-            crs=f'EPSG:{epsg_code_utm}',
+            crs=f"EPSG:{epsg_code_utm}",
             transform=transform,
         ) as dst:
             dst.write(reshaped_result, 1)
@@ -192,10 +210,22 @@ def min_max_normalize(image, gamma=1.0):
     # normalize image and set NaNs to NODATA value
     image = np.nan_to_num(image, 65535).astype("uint16")
     image = (image - image.min()) / (image.max() - image.min()) * gamma
-    image = np.clip(image, 0, 1)  # Ensure values are between 0 and 1 after applying gamma
+    image = np.clip(
+        image, 0, 1
+    )  # Ensure values are between 0 and 1 after applying gamma
     return image
 
-def plot_results(path_to_input_file, task, prob_map=None, pred_map=None, bin_th=0.5, ts_index=0, coords = None, rgb_gamma=1.0):
+
+def plot_results(
+    path_to_input_file,
+    task,
+    prob_map=None,
+    pred_map=None,
+    bin_th=0.5,
+    ts_index=0,
+    coords=None,
+    rgb_gamma=1.0,
+):
     rgb = xr.load_dataset(path_to_input_file)
     if coords is not None:
         rgb = rgb.isel(x=slice(coords[0], coords[2]), y=slice(coords[1], coords[3]))

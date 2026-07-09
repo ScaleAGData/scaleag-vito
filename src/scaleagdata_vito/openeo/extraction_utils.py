@@ -39,6 +39,7 @@ PLOT_BAND_MAPPING = {
 
 NODATAVALUE = 65535
 
+
 def _apply_band_scaling(array: np.array, bandname: str) -> np.array:
     """Apply scaling to the band values based on the band name.
     Parameters
@@ -289,7 +290,9 @@ def _read_job_tracking_csv(output_folder: Path) -> pd.DataFrame:
     for file in job_status_files:
         if file.exists():
             job_status_df = pd.read_csv(file)
-            job_status_dfs = pd.concat([job_status_dfs, job_status_df], ignore_index=True)
+            job_status_dfs = pd.concat(
+                [job_status_dfs, job_status_df], ignore_index=True
+            )
         else:
             raise FileNotFoundError(f"Job status file not found at {file}")
     return job_status_dfs
@@ -307,13 +310,11 @@ def compute_ndvi(gdf):
     b4 = _apply_band_scaling(gdf["S2-L2A-B04"].values, "S2-L2A-B04")
     b8 = _apply_band_scaling(gdf["S2-L2A-B08"].values, "S2-L2A-B08")
     ndvi = (b8 - b4) / (b8 + b4)
-    return ndvi #np.nan_to_num(ndvi, nan=0)
+    return ndvi  # np.nan_to_num(ndvi, nan=0)
 
 
 def visualize_timeseries(gdf: gpd.GeoDataFrame, sample_id: str) -> None:
-    sample_data = (
-        gdf[gdf["sample_id"] == sample_id].sort_values(by="timestamp")
-    ) # 
+    sample_data = gdf[gdf["sample_id"] == sample_id].sort_values(by="timestamp")  #
     # checked order in code
 
     months = sample_data["timestamp"].dt.month
@@ -347,8 +348,8 @@ def visualize_timeseries(gdf: gpd.GeoDataFrame, sample_id: str) -> None:
 
         valid_idx = data != NODATAVALUE
         sns.lineplot(
-            x = np.arange(len(months))[valid_idx],
-            y = data[valid_idx],
+            x=np.arange(len(months))[valid_idx],
+            y=data[valid_idx],
             ax=axes[i],
             alpha=0.5,
             linewidth=3,

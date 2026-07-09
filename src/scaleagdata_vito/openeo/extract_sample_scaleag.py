@@ -15,6 +15,7 @@ import openeo
 import pandas as pd
 import pystac
 import requests
+import xarray as xr
 from openeo.rest import OpenEoApiError, OpenEoApiPlainError, OpenEoRestError
 from openeo_gfmap import (
     Backend,
@@ -24,12 +25,11 @@ from openeo_gfmap import (
     TemporalContext,
 )
 from openeo_gfmap.backend import cdse_connection
-from scaleagdata_vito.openeo.job_manager import ExtractionJobManager
 from openeo_gfmap.manager.job_splitters import split_job_s2grid
 from tqdm import tqdm
 
+from scaleagdata_vito.openeo.job_manager import ExtractionJobManager
 from scaleagdata_vito.openeo.preprocessing import scaleag_preprocessed_inputs
-import xarray as xr
 
 # Logger used for the pipeline
 pipeline_log = logging.getLogger("extraction_pipeline")
@@ -249,13 +249,15 @@ def create_job_sample_scaleag(
         # Finally, create a vector cube based on the Point geometries
         cube = inputs.aggregate_spatial(geometries=geometry, reducer="mean")
     else:
-        features_gdf = gpd.GeoDataFrame.from_features(geometry.features) #.to_crs(epsg=epsg)
+        features_gdf = gpd.GeoDataFrame.from_features(
+            geometry.features
+        )  # .to_crs(epsg=epsg)
         minx, miny, maxx, maxy = features_gdf.total_bounds
         spatial_context = BoundingBoxExtent(
-            west = float(minx),
-            south = float(miny),
-            east = float(maxx),
-            north = float(maxy),
+            west=float(minx),
+            south=float(miny),
+            east=float(maxx),
+            north=float(maxy),
             # epsg=epsg
         )
         cube = inputs.filter_bbox(dict(spatial_context))
@@ -294,63 +296,63 @@ def post_job_action_sample_scaleag(
         if item_asset_path.suffix == ".nc":
             # Post-processing for NetCDF files
             ds = xr.open_dataset(item_asset_path)
-            
+
             # Convert the dates to datetime format
             if "date" in ds.data_vars:
                 ds["timestamp"] = pd.to_datetime(ds["date"])
                 ds = ds.drop_vars(["date"])
-                
+
             # Convert band dtype to uint16 (temporary fix)
             bands = [
-            "S2-L2A-B02",
-            "S2-L2A-B03",
-            "S2-L2A-B04",
-            "S2-L2A-B05",
-            "S2-L2A-B06",
-            "S2-L2A-B07",
-            "S2-L2A-B08",
-            "S2-L2A-B8A",
-            "S2-L2A-B11",
-            "S2-L2A-B12",
-            "S1-SIGMA0-VH",
-            "S1-SIGMA0-VV",
-            "elevation",
-            "slope",
-            "AGERA5-PRECIP",
-            "AGERA5-TMEAN",
+                "S2-L2A-B02",
+                "S2-L2A-B03",
+                "S2-L2A-B04",
+                "S2-L2A-B05",
+                "S2-L2A-B06",
+                "S2-L2A-B07",
+                "S2-L2A-B08",
+                "S2-L2A-B8A",
+                "S2-L2A-B11",
+                "S2-L2A-B12",
+                "S1-SIGMA0-VH",
+                "S1-SIGMA0-VV",
+                "elevation",
+                "slope",
+                "AGERA5-PRECIP",
+                "AGERA5-TMEAN",
             ]
             for band in bands:
                 if band in ds.data_vars:
                     ds[band] = ds[band].fillna(65535).astype("uint16")
-                    
+
             ds.to_netcdf(item_asset_path)
         else:
             # Post-processing for Parquet files
             gdf = gpd.read_parquet(item_asset_path)
-            
+
             gdf["timestamp"] = pd.to_datetime(gdf["date"])
             gdf.drop(columns=["date"], inplace=True)
-            
+
             bands = [
-            "S2-L2A-B02",
-            "S2-L2A-B03",
-            "S2-L2A-B04",
-            "S2-L2A-B05",
-            "S2-L2A-B06",
-            "S2-L2A-B07",
-            "S2-L2A-B08",
-            "S2-L2A-B8A",
-            "S2-L2A-B11",
-            "S2-L2A-B12",
-            "S1-SIGMA0-VH",
-            "S1-SIGMA0-VV",
-            "elevation",
-            "slope",
-            "AGERA5-PRECIP",
-            "AGERA5-TMEAN",
+                "S2-L2A-B02",
+                "S2-L2A-B03",
+                "S2-L2A-B04",
+                "S2-L2A-B05",
+                "S2-L2A-B06",
+                "S2-L2A-B07",
+                "S2-L2A-B08",
+                "S2-L2A-B8A",
+                "S2-L2A-B11",
+                "S2-L2A-B12",
+                "S1-SIGMA0-VH",
+                "S1-SIGMA0-VV",
+                "elevation",
+                "slope",
+                "AGERA5-PRECIP",
+                "AGERA5-TMEAN",
             ]
             gdf[bands] = gdf[bands].fillna(65535).astype("uint16")
-            
+
             gdf.to_parquet(item_asset_path, index=False)
 
     return job_items
@@ -462,7 +464,7 @@ def setup_extraction_functions(
         ),
     )
 
-    return datacube_fn , path_fn, post_job_fn
+    return datacube_fn, path_fn, post_job_fn
 
 
 def manager_main_loop(
